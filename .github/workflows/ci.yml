@@ -84,6 +84,7 @@ jobs:
 
       # Public Firebase web identifiers only. Server secrets stay in Secret Manager.
       - name: Build and push images
+        id: app
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -134,10 +135,13 @@ jobs:
       - name: Point maintenance job at the new image
         run: gcloud run jobs update "$MAINTENANCE_JOB" --project "$PROJECT_ID" --region "$REGION" --image "$APP_IMAGE" --quiet
 
+      # Cloud Run records the digest the tag resolved to, so compare against the pushed digest.
       - name: Verify serving revision
+        env:
+          APP_DIGEST: ${{ steps.app.outputs.digest }}
         run: |
           revision=$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.traffic[0].revisionName)')
           image=$(gcloud run revisions describe "$revision" --project "$PROJECT_ID" --region "$REGION" --format 'value(spec.containers[0].image)')
           echo "Serving revision: $revision ($image)"
-          test "$image" = "$APP_IMAGE"
+          test "$image" = "${APP_IMAGE%:*}@${APP_DIGEST}"
           echo "### Deployed \`$revision\` from \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
