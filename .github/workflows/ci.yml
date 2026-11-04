@@ -12,7 +12,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded PR runs are cancelled; runs on main queue so a deploy is never cut off midway.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -38,3 +39,105 @@ jobs:
       - run: npm ci
 
       - run: npm run check
+
+  # Deploys only the Meta app (Cloud Run service neighbourhood-meta and its jobs).
+  # The deployer identity is granted on those Meta resources only, so it cannot
+  # change neighbourhood-owned, neighbourhood-api or any other production resource.
+  deploy:
+    name: Deploy neighbourhood-meta
+    needs: check
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: deploy-neighbourhood-meta
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      PROJECT_ID: neighbourhood-web-app
+      REGION: asia-southeast1
+      SERVICE: neighbourhood-meta
+      MIGRATE_JOB: neighbourhood-meta-migrate
+      MAINTENANCE_JOB: neighbourhood-meta-maintenance
+      APP_IMAGE: asia-southeast1-docker.pkg.dev/neighbourhood-web-app/neighbourhood-meta/app:${{ github.sha }}
+      MIGRATE_IMAGE: asia-southeast1-docker.pkg.dev/neighbourhood-web-app/neighbourhood-meta/migrate:${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Short-lived credentials through Workload Identity Federation; no service-account key exists.
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Public Firebase web identifiers only. Server secrets stay in Secret Manager.
+      - name: Build and push images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: ${{ env.APP_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}
+            VITE_FIREBASE_PROJECT_ID=${{ vars.FIREBASE_PROJECT_ID }}
+            VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
+            VITE_FIREBASE_VAPID_KEY=
+
+      - name: Build and push migration image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: migrate
+          push: true
+          tags: ${{ env.MIGRATE_IMAGE }}
+          cache-from: type=gha
+          build-args: |
+            VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}
+            VITE_FIREBASE_PROJECT_ID=${{ vars.FIREBASE_PROJECT_ID }}
+            VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}
+            VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+            VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
+            VITE_FIREBASE_VAPID_KEY=
+
+      # Migrations finish before the new revision exists, so traffic never reaches code ahead of its schema.
+      - name: Run database migrations
+        run: |
+          gcloud run jobs update "$MIGRATE_JOB" --project "$PROJECT_ID" --region "$REGION" --image "$MIGRATE_IMAGE" --quiet
+          gcloud run jobs execute "$MIGRATE_JOB" --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+
+      # Only the image changes; env, secrets, service account and scaling stay as configured.
+      - name: Deploy service
+        run: |
+          gcloud run deploy "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --image "$APP_IMAGE" \
+            --revision-suffix "g${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+            --update-labels "commit-sha=${GITHUB_SHA}" --quiet
+
+      - name: Point maintenance job at the new image
+        run: gcloud run jobs update "$MAINTENANCE_JOB" --project "$PROJECT_ID" --region "$REGION" --image "$APP_IMAGE" --quiet
+
+      - name: Verify serving revision
+        run: |
+          revision=$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.traffic[0].revisionName)')
+          image=$(gcloud run revisions describe "$revision" --project "$PROJECT_ID" --region "$REGION" --format 'value(spec.containers[0].image)')
+          echo "Serving revision: $revision ($image)"
+          test "$image" = "$APP_IMAGE"
+          echo "### Deployed \`$revision\` from \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
