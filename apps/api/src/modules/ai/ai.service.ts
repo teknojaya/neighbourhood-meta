@@ -10,11 +10,11 @@ import { z } from 'zod';
 import type { AskModel } from '../ask/ask.model.js';
 import { HttpError } from '../../lib/http.js';
 import { logger } from '../../lib/logger.js';
-import type { StructuredGenerator } from './gemini.adapter.js';
+import type { StructuredGenerator } from './meta.adapter.js';
 import { buildNeedsInput, NEEDS_JSON_SCHEMA, NEEDS_SYSTEM_INSTRUCTION } from './needs.prompt.js';
 
 export class AiService {
-  /** `generator` is null when GEMINI_API_KEY/GEMINI_MODEL are missing. */
+  /** `generator` is null when META_API_KEY is missing. */
   constructor(
     private readonly generator: StructuredGenerator | null,
     private readonly now: () => Date = () => new Date(),

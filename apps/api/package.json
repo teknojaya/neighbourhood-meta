@@ -27,7 +27,6 @@
     "cleanup:duplicates": "tsx --env-file-if-exists=.env scripts/cleanup-duplicates.ts"
   },
   "dependencies": {
-    "@google/genai": "2.30.0",
     "@neighbourhood/shared": "0.1.0",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",

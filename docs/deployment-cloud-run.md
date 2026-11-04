@@ -3,7 +3,7 @@
 Nothing in this document has been executed against Google Cloud. It is the
 reviewed command sequence for a first release of the single-container app
 (API + built PWA) on Cloud Run, PostgreSQL 17 on Cloud SQL, Firebase
-Auth/Storage/FCM and server-side Gemini. Run it from a clean checkout of the
+Auth/Storage/FCM and server-side Meta Model API. Run it from a clean checkout of the
 commit you intend to release, as an operator who owns the project.
 
 ## What the runtime needs
@@ -107,11 +107,11 @@ printf '%s' "postgresql://$DB_USER:$DB_PASSWORD@localhost/$DB?host=/cloudsql/$CO
   | gcloud secrets create nh-database-url --data-file=- --project $PROJECT
 openssl rand -base64 48 | tr -d '\n' | gcloud secrets create nh-storage-signing-secret --data-file=- --project $PROJECT
 openssl rand -base64 48 | tr -d '\n' | gcloud secrets create nh-otp-secret --data-file=- --project $PROJECT
-gcloud secrets create nh-gemini-api-key --data-file=/secure/path/gemini-key.txt --project $PROJECT
+gcloud secrets create nh-meta-api-key --data-file=/secure/path/meta-key.txt --project $PROJECT
 gcloud secrets create nh-smtp-password  --data-file=/secure/path/smtp-password.txt --project $PROJECT
 unset DB_PASSWORD
 
-for S in nh-database-url nh-storage-signing-secret nh-otp-secret nh-gemini-api-key nh-smtp-password; do
+for S in nh-database-url nh-storage-signing-secret nh-otp-secret nh-meta-api-key nh-smtp-password; do
   gcloud secrets add-iam-policy-binding $S --member=serviceAccount:$SA \
     --role=roles/secretmanager.secretAccessor --project $PROJECT
 done
@@ -151,9 +151,9 @@ and execute it before deploying the service.
 ## 8. Service
 
 ```sh
-COMMON_ENV=NODE_ENV=production,FIREBASE_PROJECT_ID=$PROJECT,FIREBASE_STORAGE_BUCKET=$BUCKET,GEMINI_MODEL=gemini-3.5-flash-lite,PUSH_ENABLED=false
+COMMON_ENV=NODE_ENV=production,FIREBASE_PROJECT_ID=$PROJECT,FIREBASE_STORAGE_BUCKET=$BUCKET,META_MODEL=muse-spark-1.3,PUSH_ENABLED=false
 SMTP_ENV=SMTP_HOST=smtp.example.com,SMTP_PORT=587,SMTP_SECURE=false,SMTP_USER=apikey,EMAIL_FROM=NeighbourHood\ \<no-reply@example.com\>
-SECRETS=DATABASE_URL=nh-database-url:latest,STORAGE_SIGNING_SECRET=nh-storage-signing-secret:latest,OTP_SECRET=nh-otp-secret:latest,GEMINI_API_KEY=nh-gemini-api-key:latest,SMTP_PASSWORD=nh-smtp-password:latest
+SECRETS=DATABASE_URL=nh-database-url:latest,STORAGE_SIGNING_SECRET=nh-storage-signing-secret:latest,OTP_SECRET=nh-otp-secret:latest,META_API_KEY=nh-meta-api-key:latest,SMTP_PASSWORD=nh-smtp-password:latest
 
 gcloud run deploy neighbourhood --image=$REPO/app:$TAG --region=$REGION \
   --service-account=$SA --add-cloudsql-instances=$CONN \

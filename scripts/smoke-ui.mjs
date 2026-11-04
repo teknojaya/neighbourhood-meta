@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import sharp from 'sharp';
 import { stubMapTiles } from './map-test-tiles.mjs';
 
-// Read-only visual/navigation checks against the local seeded demo. No Gemini calls or marketplace writes.
+// Read-only visual/navigation checks against the local seeded demo. No AI model calls or marketplace writes.
 const web = process.env.SMOKE_WEB_URL ?? 'http://localhost:5173';
 assert(['localhost', '127.0.0.1'].includes(new URL(web).hostname));
 const out = path.resolve(process.env.UI_SCREENSHOT_DIR ?? 'artifacts/ui');

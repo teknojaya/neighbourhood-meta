@@ -10,7 +10,8 @@ import { createDb } from './lib/db.js';
 import { logger } from './lib/logger.js';
 import { createStorageBundle } from './lib/storage-bundle.js';
 import { AiService } from './modules/ai/ai.service.js';
-import { GeminiAdapter } from './modules/ai/gemini.adapter.js';
+import { MetaAdapter } from './modules/ai/meta.adapter.js';
+import { MetaChatClient } from './modules/ai/meta.client.js';
 import { PrismaAccessRepository } from './modules/auth/access.js';
 import { FirebaseTokenVerifier } from './modules/auth/auth.js';
 import { PrismaUsersRepository, UserProvisioningService } from './modules/auth/users.js';
@@ -29,7 +30,7 @@ import { PrismaConversationsService } from './modules/conversations/conversation
 import { PrismaNotificationsService } from './modules/notifications/notifications.service.js';
 import { PrismaNeedsService } from './modules/needs/needs.service.js';
 import { PrismaAskService } from './modules/ask/ask.service.js';
-import { GeminiAskModel } from './modules/ask/ask.model.js';
+import { MetaAskModel } from './modules/ask/ask.model.js';
 
 function main() {
   // Safe environment loading for local development
@@ -64,7 +65,9 @@ function main() {
   const db = createDb(config.databaseUrl!);
   const access = new PrismaAccessRepository(db);
 
-  const generator = config.gemini ? new GeminiAdapter(config.gemini.model, config.gemini.apiKey) : null;
+  const metaClient = config.meta ? new MetaChatClient(config.meta.apiKey) : null;
+  const generator = config.meta && metaClient ? new MetaAdapter(config.meta.model, metaClient) : null;
+  const askModel = config.meta && metaClient ? new MetaAskModel(config.meta.model, metaClient) : null;
   const otp = new EmailOtpService(
     config.emailOtp
       ? {
@@ -84,7 +87,7 @@ function main() {
 
   const services = { loans: new LoansService(db, photoStorage), communities: new CommunitiesService(db), needs: new PrismaNeedsService(db), requests: new PrismaRequestsService(db, photoStorage), conversations: new PrismaConversationsService(db, storage.conversations, photoStorage), notifications: new PrismaNotificationsService(db) };
   const askServices = { ...services, marketplace: { listings, loans: services.loans, communities: services.communities, matching }, listings: { get: async (userId: string, id: string) => (await listings.getListingDetail(userId, id)).listing } };
-  const ask = new PrismaAskService(db, config.gemini ? new GeminiAskModel(config.gemini.model, config.gemini.apiKey) : null,
+  const ask = new PrismaAskService(db, askModel,
     storage.ask, askServices);
   // Storage cleanup is retryable; soft-deleted chats are never readable meanwhile.
   void ask.purgeDeletedSessions().catch(() => logger.warn('ask_cleanup_unavailable'));
@@ -102,7 +105,7 @@ function main() {
     access,
     otp,
     profiles: new ProfilesService(new PrismaProfilesRepository(db), access),
-    ai: new AiService(generator, undefined, config.gemini ? new GeminiAskModel(config.gemini.model, config.gemini.apiKey) : null),
+    ai: new AiService(generator, undefined, askModel),
     ...services,
     ask,
     listings,
@@ -123,7 +126,7 @@ function main() {
       authEmulator: config.firebase.useEmulators,
       storageDriver: storage.driver,
       aiAvailable: generator !== null,
-      aiModel: config.gemini?.model ?? null,
+      aiModel: config.meta?.model ?? null,
       emailOtpAvailable: config.emailOtp !== null,
       // Names only, never values.
       emailOtpMissing: config.emailOtpMissing.join(',') || null,

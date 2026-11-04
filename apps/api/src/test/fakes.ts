@@ -2,7 +2,7 @@ import type { Membership, PlatformRole } from '@neighbourhood/shared';
 import { createApp } from '../app.js';
 import { type AppConfig, loadConfig } from '../config.js';
 import { AiService } from '../modules/ai/ai.service.js';
-import type { StructuredGenerator, StructuredRequest } from '../modules/ai/gemini.adapter.js';
+import type { StructuredGenerator, StructuredRequest } from '../modules/ai/meta.adapter.js';
 import type { AccessRepository } from '../modules/auth/access.js';
 import type { TokenVerifier, VerifiedIdentity } from '../modules/auth/auth.js';
 import { DuplicateUserError, type UserRecord, type UsersRepository, UserProvisioningService } from '../modules/auth/users.js';

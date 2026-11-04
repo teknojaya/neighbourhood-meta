@@ -3,7 +3,7 @@
 The React PWA calls Express `/api/v1` with a Firebase ID token. Express owns
 authorization and writes PostgreSQL through Prisma. Firebase Storage holds
 normalized photos, Firebase Auth handles identity, and FCM delivers optional
-generic notifications. Gemini runs only in the API. Cloud Run can serve the
+generic notifications. The Meta Model API is called only from the API. Cloud Run can serve the
 built PWA and API from one container; Cloud SQL is the production database.
 
 ## Domain consistency
@@ -30,7 +30,7 @@ conversations and stock changes share the domain transaction.
 ## Ask execution
 
 Private sessions persist messages, typed result cards, image attachments,
-drafts, model runs and action proposals. Gemini uses a bounded streaming tool
+drafts, model runs and action proposals. The Meta model uses a bounded streaming tool
 loop; visible text/progress is persisted and polled by the client. One active
 run per session, cancellation checks and retry keys protect interrupted turns.
 
@@ -44,7 +44,7 @@ same services using deterministic idempotency keys. Listing edits check the
 version captured in the proposal. Execution recovery has a separate lease and
 an overall deadline shorter than domain idempotency retention.
 
-Publication combines a Gemini draft with a secure form for location and pickup
+Publication combines an AI draft with a secure form for location and pickup
 details. Those details are never sent to the model. Confirming publishes the
 listing and copies normalized session images into listing storage. A partial
 photo failure is recoverable without duplicating the listing.

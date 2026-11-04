@@ -12,7 +12,7 @@ COPY apps/web/package.json apps/web/
 RUN npm ci --no-audit --no-fund
 COPY . .
 # Public Firebase web config is baked into the frontend at build time.
-# These are identifiers, not secrets. Never pass GEMINI_API_KEY here.
+# These are identifiers, not secrets. Never pass META_API_KEY here.
 ARG VITE_FIREBASE_API_KEY
 ARG VITE_FIREBASE_AUTH_DOMAIN
 ARG VITE_FIREBASE_PROJECT_ID

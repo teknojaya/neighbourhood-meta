@@ -4,7 +4,7 @@ import { type Auth, connectAuthEmulator, getAuth } from 'firebase/auth';
 /**
  * Browser Firebase config. These values are public identifiers, not secrets
  * (access is enforced by the API + security rules). Server secrets such as
- * GEMINI_API_KEY must never be exposed via VITE_ variables.
+ * META_API_KEY must never be exposed via VITE_ variables.
  */
 export const firebasePublicConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,

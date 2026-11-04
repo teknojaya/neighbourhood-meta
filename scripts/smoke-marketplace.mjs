@@ -97,15 +97,15 @@ try {
   const detail = await api(neighbour, `/ask/sessions/${session.id}`);
   assert.equal(detail.latestRun?.status, 'completed', detail.latestRun?.errorCode ?? 'run failed');
   assert(detail.messages.items.some(m => m.parts.some(p => p.kind === 'listings' && p.items.some(item => item.id === listing.id))));
-  report('PASS immediate Ask composer, no empty session creation, first-send session and real Gemini discovery');
+  report('PASS immediate Ask composer, no empty session creation, first-send session and real Meta model discovery');
 
   phase = 'real extraction and saved-need matching';
   const extracted = await api(neighbour, '/ai/needs/extract', 'POST', { text: 'I need one donated picture book for a child.' });
   assert(extracted.requiresUserReview && extracted.extraction.items.length);
   const saved = await api(neighbour, '/needs', 'POST', { extraction: extracted.extraction });
   const matches = await api(neighbour, `/needs/${saved.id}/matches`);
-  assert.equal(matches.explanationSource, 'gemini'); assert(matches.items.every(item => item.listing.id && !('exactLocation' in item.listing)));
-  report('PASS real structured needs extraction and grounded Gemini match explanations');
+  assert.equal(matches.explanationSource, 'model'); assert(matches.items.every(item => item.listing.id && !('exactLocation' in item.listing)));
+  report('PASS real structured needs extraction and grounded Meta model match explanations');
 
   phase = 'real typed marketplace action';
   const ownerSession = await api(owner, '/ask/sessions', 'POST', { clientId: randomUUID() });

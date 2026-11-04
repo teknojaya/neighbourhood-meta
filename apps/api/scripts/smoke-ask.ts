@@ -53,7 +53,7 @@ try {
   assert(login.ok, `Emulator sign-in: HTTP ${login.status}`);
   token = z.object({ idToken: z.string() }).parse(await login.json()).idToken;
   const status = AskStatusSchema.parse(await api('/ask/status'));
-  assert(status.available && status.imagesAvailable, 'Configure Gemini and Storage before this test');
+  assert(status.available && status.imagesAvailable, 'Configure META_API_KEY and Storage before this test');
   const session = AskSessionSchema.parse(await api('/ask/sessions', 'POST', { clientId: randomUUID() }));
   phase = 'live product guide';
   let detail = await send(session.id, 'In English, briefly explain what a community collection point is in NeighbourHood. Use the product guide and clarify whether it is a reward score.');
@@ -68,12 +68,12 @@ try {
   assert(/category.{0,20}editor/i.test(answer), 'Expected actual fixture platform role');
   assert(/no communit|not.{0,30}join|haven.t.{0,20}join|any communit|zero communit/i.test(answer), 'Expected no inferred community membership');
   assert.equal(await db.askAction.count({ where: { sessionId: session.id } }), 0, 'Product/account help must not propose marketplace writes');
-  report('PASS real Gemini product knowledge and actual caller roles without inferred memberships');
+  report('PASS real Meta model product knowledge and actual caller roles without inferred memberships');
   phase = 'live saved-needs tool';
   detail = await send(session.id, 'Tampilkan kebutuhan tersimpan saya. Gunakan list_saved_needs.');
   assert(detail.messages.items.some(m => m.parts.some(p => p.kind === 'saved_needs' && p.items.length === 0)));
   assert(detail.messages.items.some(m => m.role === 'assistant' && /kebutuhan|tersimpan|belum/i.test(m.text)), 'Expected Indonesian reply');
-  report('PASS real Gemini tool call and persisted history');
+  report('PASS real Meta model tool call and persisted history');
 
   phase = 'live saved-need proposal';
   detail = await send(session.id, 'Prepare a saved need for two donated books, category books, donation preference, no dates or attributes. Use prepare_save_need and show the review card.');
@@ -105,7 +105,7 @@ try {
   phase = 'live image understanding';
   detail = await send(session.id, 'Describe the color of this test image in English, briefly. Do not create a draft or action.', [photo.id]);
   assert(detail.messages.items.some(m => m.role === 'assistant' && /\bred\b/i.test(m.text)), 'Expected red image description');
-  report('PASS real Gemini image understanding');
+  report('PASS real Meta model image understanding');
 
   phase = 'owned-photo structured listing assistance';
   const suggested = z.object({ requiresUserReview: z.literal(true), draft: ListingDraftSchema }).parse(await api('/ai/listing-draft', 'POST', { sessionId: session.id, attachmentId: photo.id, hint: 'A synthetic red picture card offered for donation. Unknown condition and quantity.' }));

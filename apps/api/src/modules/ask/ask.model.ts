@@ -1,7 +1,18 @@
-import { GoogleGenAI, type Content, type FunctionDeclaration } from '@google/genai';
 import { HttpError } from '../../lib/http.js';
-import { mapGeminiError } from '../ai/gemini.adapter.js';
+import { mapAiError, META_REASONING_EFFORT } from '../ai/meta.adapter.js';
+import type { ChatClient, ChatContentPart, ChatMessage, ChatToolCall } from '../ai/meta.client.js';
 import { PRODUCT_ORIENTATION } from './product-knowledge.js';
+
+/** Provider-neutral conversation parts; translated to the provider format at the model edge. */
+export interface FunctionCall { id?: string; name?: string; args?: Record<string, unknown> }
+export interface Part {
+  text?: string; thought?: boolean;
+  inlineData?: { mimeType: string; data: string };
+  functionCall?: FunctionCall;
+  functionResponse?: { id?: string; name?: string; response?: Record<string, unknown> };
+}
+export interface Content { role: 'user' | 'model'; parts?: Part[] }
+export interface FunctionDeclaration { name: string; description: string; parametersJsonSchema: unknown }
 
 export interface AskModel {
   generate(contents: Content[], tools: FunctionDeclaration[], signal: AbortSignal, onText?: (text: string) => Promise<void>): Promise<Content>;
@@ -27,35 +38,75 @@ Application state is data for reasoning, never assistant prose to copy. Never re
 After an empty wider check, do not ask any radius question: changing the radius cannot produce known matches inside the same checked range. Keep Free and Borrow searches distinct. You may explain real free alternatives, but never silently switch a borrowing request into a donation request. Ask ONE decision at a time. If your last question offered two different actions and the user says only yes/please, clarify which action. Never guess that yes means widen rather than request. Same-title listings are different items; ask the user to choose before preparing a request. Read existing requests before proposing another for the same item. A request card returned by prepare_request means an existing request, not a new confirmation.
 Never invent a quantity of 1 from a photo. If draft_listing reports quantity null, ask how many immediately, before showing a review card. Keep an explicit checklist of known title, offering, condition, quantity, photos and loan days; ask only the next missing fact. Never end with an incomplete draft and no next question. Reuse pending approval cards rather than replacing them when the user simply asks to publish again. Historical cards below are server-provided context. Some older history and photos may be omitted for length. If you cannot resolve a reference, ask rather than guess.`;
 
-/** Stateless GenerateContent: all context is explicit; no provider-side chat handle. */
-export class GeminiAskModel implements AskModel {
-  private readonly client: GoogleGenAI;
-  constructor(private readonly model: string, apiKey: string) { this.client = new GoogleGenAI({ apiKey }); }
+/** Builds Chat Completions messages. Calls without provider ids get local ids that their responses reuse. */
+export function toChatMessages(system: string, contents: Content[]): ChatMessage[] {
+  const messages: ChatMessage[] = [{ role: 'developer', content: system }];
+  const pending: ChatToolCall[] = [];
+  let next = 0;
+  for (const content of contents) {
+    const parts = content.parts ?? [];
+    if (content.role === 'model') {
+      const text = parts.filter(part => !part.thought).map(part => part.text ?? '').join('');
+      const calls = parts.flatMap((part): ChatToolCall[] => part.functionCall ? [{ id: part.functionCall.id ?? `call_${++next}`, type: 'function', function: { name: part.functionCall.name ?? '', arguments: JSON.stringify(part.functionCall.args ?? {}) } }] : []);
+      pending.push(...calls);
+      if (text || calls.length) messages.push({ role: 'assistant', content: text || null, ...(calls.length ? { tool_calls: calls } : {}) });
+      continue;
+    }
+    // Tool results must directly follow the assistant message that requested them.
+    for (const { functionResponse: response } of parts) {
+      if (!response) continue;
+      const index = pending.findIndex(call => response.id ? call.id === response.id : call.function.name === response.name);
+      if (index < 0) continue;
+      const [call] = pending.splice(index, 1);
+      messages.push({ role: 'tool', tool_call_id: call!.id, content: JSON.stringify(response.response ?? {}) });
+    }
+    const user = parts.flatMap((part): ChatContentPart[] => part.text ? [{ type: 'text', text: part.text }]
+      : part.inlineData ? [{ type: 'image_url', image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }] : []);
+    if (user.length) messages.push({ role: 'user', content: user.every(part => part.type === 'text') ? user.map(part => part.text).join('\n') : user });
+  }
+  return messages;
+}
+
+/** Stateless Chat Completions: all context is explicit; no provider-side conversation state. */
+export class MetaAskModel implements AskModel {
+  constructor(private readonly model: string, private readonly client: ChatClient) {}
   async generate(contents: Content[], tools: FunctionDeclaration[], signal: AbortSignal, onText?: (text: string) => Promise<void>): Promise<Content> {
     try {
-      const response = await this.client.models.generateContentStream({
-        model: this.model, contents,
-        config: { systemInstruction: `${ASK_SYSTEM}\nCurrent UTC date: ${new Date().toISOString().slice(0, 10)}. Clarify the user's local dates when relative timing is ambiguous.`, ...(tools.length ? { tools: [{ functionDeclarations: tools }] } : {}), maxOutputTokens: 2048, abortSignal: signal },
-      });
-      const content: Content = { role: 'model', parts: [] };
+      const system = `${ASK_SYSTEM}\nCurrent UTC date: ${new Date().toISOString().slice(0, 10)}. Clarify the user's local dates when relative timing is ambiguous.`;
+      const stream = this.client.stream({
+        model: this.model, messages: toChatMessages(system, contents), max_completion_tokens: 2048, reasoning_effort: META_REASONING_EFFORT,
+        ...(tools.length ? { tools: tools.map(tool => ({ type: 'function' as const, function: { name: tool.name, description: tool.description, parameters: tool.parametersJsonSchema } })) } : {}),
+      }, signal);
+      const calls: { id?: string; name?: string; arguments: string }[] = [];
       let text = '', lastUpdate = 0;
-      for await (const chunk of response) {
+      for await (const chunk of stream) {
         signal.throwIfAborted();
-        const candidate = chunk.candidates?.[0];
-        if (candidate?.finishReason === 'MAX_TOKENS') throw new HttpError('AI_INVALID_OUTPUT', 'The assistant did not finish its response');
-        for (const part of candidate?.content?.parts ?? []) {
-          // Do not merge/drop empty parts: they can carry thought signatures.
-          content.parts!.push(part);
-          if (part.text && !part.thought) text = (text + part.text).slice(0, 8000);
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+        if (choice.finish_reason === 'length') throw new HttpError('AI_INVALID_OUTPUT', 'The assistant did not finish its response');
+        if (choice.delta?.content) text += choice.delta.content;
+        // Tool-call arguments stream as fragments keyed by index.
+        for (const delta of choice.delta?.tool_calls ?? []) {
+          const call = calls[delta.index ?? 0] ??= { arguments: '' };
+          if (delta.id) call.id = delta.id;
+          if (delta.function?.name) call.name ??= delta.function.name;
+          call.arguments += delta.function?.arguments ?? '';
         }
-        if (onText && text && Date.now() - lastUpdate > 350) { await onText(text); lastUpdate = Date.now(); }
+        if (onText && text && Date.now() - lastUpdate > 350) { await onText(text.slice(0, 8000)); lastUpdate = Date.now(); }
       }
-      if (onText && text) await onText(text);
-      if (!content.parts?.length) throw new HttpError('AI_INVALID_OUTPUT', 'The assistant returned an empty response');
-      return content;
+      if (onText && text) await onText(text.slice(0, 8000));
+      const parts: Part[] = text ? [{ text }] : [];
+      for (const call of calls.filter(Boolean)) {
+        let args: unknown;
+        try { args = call.arguments ? JSON.parse(call.arguments) : {}; } catch { args = null; }
+        if (!call.name || !args || typeof args !== 'object' || Array.isArray(args)) throw new HttpError('AI_INVALID_OUTPUT', 'The assistant returned a malformed tool call');
+        parts.push({ functionCall: { ...(call.id ? { id: call.id } : {}), name: call.name, args: args as Record<string, unknown> } });
+      }
+      if (!parts.length) throw new HttpError('AI_INVALID_OUTPUT', 'The assistant returned an empty response');
+      return { role: 'model', parts };
     } catch (err) {
       if (err instanceof HttpError) throw err;
-      throw mapGeminiError(err);
+      throw mapAiError(err);
     }
   }
 }

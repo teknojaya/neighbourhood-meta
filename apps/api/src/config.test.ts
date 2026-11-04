@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, DEFAULT_META_MODEL, loadConfig } from './config.js';
 
 const emu = {
   USE_FIREBASE_EMULATORS: 'true',
@@ -39,16 +39,17 @@ describe('config safeguards', () => {
     expect(full.emailOtp?.smtp.secure).toBe(false);
     expect(() => loadConfig({ NODE_ENV: 'test', OTP_SECRET: 'short' })).toThrow(/32/);
   });
-  it('reports Gemini as not configured without leaking values', () => {
-    const c = loadConfig({ NODE_ENV: 'test', GEMINI_MODEL: 'gemini-3.5-flash-lite' });
-    expect(c.gemini).toBeNull();
-    expect(c.geminiUnavailableReason).toBe('not_configured');
-    const ok = loadConfig({ NODE_ENV: 'test', GEMINI_API_KEY: 'secret-value', GEMINI_MODEL: 'gemini-3.5-flash-lite' });
-    expect(ok.gemini?.model).toBe('gemini-3.5-flash-lite');
+  it('reports the AI model as not configured without leaking values', () => {
+    const c = loadConfig({ NODE_ENV: 'test', META_MODEL: 'muse-spark-1.3' });
+    expect(c.meta).toBeNull();
+    expect(c.aiUnavailableReason).toBe('not_configured');
+    const ok = loadConfig({ NODE_ENV: 'test', META_API_KEY: 'secret-value', META_MODEL: 'muse-spark-1.2' });
+    expect(ok.meta?.model).toBe('muse-spark-1.2');
+    expect(loadConfig({ NODE_ENV: 'test', META_API_KEY: 'secret-value' }).meta?.model).toBe(DEFAULT_META_MODEL);
   });
   it('does not echo secret values in validation errors', () => {
     try {
-      loadConfig({ GEMINI_MODEL: 'NOT A MODEL; secret-abc', GEMINI_API_KEY: 'super-secret' });
+      loadConfig({ META_MODEL: 'NOT A MODEL; secret-abc', META_API_KEY: 'super-secret' });
       expect.unreachable();
     } catch (e) {
       expect(String(e)).not.toContain('super-secret');

@@ -9,8 +9,8 @@ import type { AiService } from './ai.service.js';
 
 /**
  * Per-user limiter (keyed by verified uid, so it must run after requireAuth).
- * In-memory: each Cloud Run instance keeps its own counters. Gemini project
- * quota is the global backstop; see docs/architecture.md.
+ * In-memory: each Cloud Run instance keeps its own counters. Meta Model API
+ * team rate limits are is the global backstop; see docs/architecture.md.
  */
 export function aiRateLimiter() {
   return rateLimit({

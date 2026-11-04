@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { MarketplaceActionSchema, type MarketplaceAction } from '@neighbourhood/shared';
 import { executeMarketplace, authorizeProposal, marketplaceSummary } from './ask.marketplace.js';
-import type { Content, Part } from '@google/genai';
+import type { Content, Part } from './ask.model.js';
 import {
   ASK_LIMITS, AskActionPayloadSchema, AskActionSchema, AskMessageSchema, DomainError,
   AskPartSchema, AskSessionDetailSchema, AskListingDraftDataSchema,

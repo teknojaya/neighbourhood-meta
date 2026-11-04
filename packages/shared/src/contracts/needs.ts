@@ -14,4 +14,4 @@ export const SavedNeedSchema = z.object({
 });
 export type SavedNeed = z.infer<typeof SavedNeedSchema>;
 export const SavedNeedPageSchema = pageOf(SavedNeedSchema);
-export const NeedMatchesSchema = z.object({ items: z.array(z.object({ listing: ListingPublicSchema, fit: z.enum(['strong', 'partial', 'weak']), reason: z.string(), missingInfo: z.array(z.string()) })), explanationSource: z.enum(['filters', 'gemini']) });
+export const NeedMatchesSchema = z.object({ items: z.array(z.object({ listing: ListingPublicSchema, fit: z.enum(['strong', 'partial', 'weak']), reason: z.string(), missingInfo: z.array(z.string()) })), explanationSource: z.enum(['filters', 'model']) });

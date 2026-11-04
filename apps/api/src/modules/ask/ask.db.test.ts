@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import sharp from 'sharp';
-import type { Content } from '@google/genai';
+import type { Content } from './ask.model.js';
 import type { NeedsExtraction } from '@neighbourhood/shared';
 import { createApp } from '../../app.js';
 import { createDb } from '../../lib/db.js';
@@ -56,7 +56,7 @@ async function fixture(model = new FakeModel()) {
   return { user, images, ask, session, app, model };
 }
 const send = (text = 'Remember that I need a rice cooker') => ({ clientMessageId: randomUUID(), text, attachmentIds: [] });
-const prepare = (name: string, args: Record<string, unknown>): Content => ({ role: 'model', parts: [{ functionCall: { id: 'tool-1', name, args }, thoughtSignature: 'preserve-me' }] });
+const prepare = (name: string, args: Record<string, unknown>): Content => ({ role: 'model', parts: [{ functionCall: { id: 'tool-1', name, args } }] });
 
 afterAll(async () => {
   await db.askSession.deleteMany({ where: { userId: { in: users } } });
@@ -197,11 +197,11 @@ describe('Ask sessions, agent tools and confirmed actions against PostgreSQL', (
     expect(JSON.stringify(detail)).not.toContain('requestHash');
   });
 
-  it('prepares editable needs without writing, preserves tool signatures and confirms exactly once', async () => {
+  it('prepares editable needs without writing, preserves tool call ids and confirms exactly once', async () => {
     const f = await fixture(new FakeModel((_contents, call) => call === 1 ? prepare('prepare_save_need', { extraction }) : reply));
     await f.ask.send(f.user.id, f.session.id, send());
     expect(await db.need.count({ where: { userId: f.user.id } })).toBe(0);
-    expect(JSON.stringify(f.model.calls[1])).toContain('preserve-me');
+    expect(f.model.calls[1]!.flatMap(c => c.parts ?? []).filter(p => p.functionCall?.id === 'tool-1' || p.functionResponse?.id === 'tool-1')).toHaveLength(2);
     const detail = await f.ask.detail(f.user.id, f.session.id);
     const card = detail.messages.items.flatMap((m) => m.parts).find((p) => p.kind === 'action');
     if (card?.kind !== 'action') throw new Error('missing action');

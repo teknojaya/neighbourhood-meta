@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
-import type { FunctionDeclaration } from '@google/genai';
+import type { FunctionDeclaration } from './ask.model.js';
 import {
   ASK_LIMITS, AskActionPayloadSchema, AskInputSchema, AskListingDraftDataSchema, AskListingDraftSchema, AskPartSchema,
   CreateDonationRequestBodySchema, DonationRequestTransitionBodySchema, NeedsExtractionSchema,

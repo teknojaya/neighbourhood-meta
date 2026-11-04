@@ -4,10 +4,10 @@ import { ITEM_CATEGORIES } from '@neighbourhood/shared';
  * Prompt + response schema for needs extraction.
  *
  * The JSON schema mirrors `NeedsExtractionSchema` (packages/shared) using
- * only keywords documented as supported by Gemini structured output
- * (type incl. "null", enum, required, minimum/maximum, min/maxItems,
- * additionalProperties, format: date). String length limits are enforced
- * afterwards by Zod. A test keeps the two schemas aligned.
+ * plain JSON Schema keywords (type incl. "null", enum, required,
+ * minimum/maximum, min/maxItems, additionalProperties, format: date).
+ * Array-length keywords are stripped before sending (see modelOutputSchema);
+ * array and string length limits are enforced afterwards by Zod. A test keeps the two schemas aligned.
  */
 export const NEEDS_SYSTEM_INSTRUCTION = `You extract structured needs for NeighbourHood, a neighbourhood app where people donate or lend groceries, clothing, books, household goods, appliances and mobility aids. Collection is arranged by the recipient; there is no delivery.
 

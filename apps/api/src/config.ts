@@ -29,11 +29,12 @@ const EnvSchema = z.object({
   FIREBASE_AUTH_EMULATOR_HOST: optionalString,
   FIREBASE_STORAGE_EMULATOR_HOST: optionalString,
 
-  GEMINI_API_KEY: optionalString,
-  GEMINI_MODEL: optionalString.pipe(
+  /** Meta Model API key (server-side only). */
+  META_API_KEY: optionalString,
+  META_MODEL: optionalString.pipe(
     z
       .string()
-      .regex(/^[a-z0-9][a-z0-9.-]{1,80}$/, 'GEMINI_MODEL must be a model id like gemini-3.5-flash-lite')
+      .regex(/^[a-z0-9][a-z0-9.-]{1,80}$/, 'META_MODEL must be a model id like muse-spark-1.3')
       .optional(),
   ),
 
@@ -69,9 +70,9 @@ export interface AppConfig {
   deployed: boolean;
   databaseUrl: string | undefined;
   firebase: { projectId: string | undefined; storageBucket: string | undefined; useEmulators: boolean };
-  gemini: { apiKey: string; model: string } | null;
-  /** Why Gemini is unavailable; shown as an honest state in the UI. */
-  geminiUnavailableReason: 'not_configured' | null;
+  meta: { apiKey: string; model: string } | null;
+  /** Why the AI model is unavailable; shown as an honest state in the UI. */
+  aiUnavailableReason: 'not_configured' | null;
   /** Null when OTP email delivery is not fully configured. */
   emailOtp: { secret: string; smtp: SmtpConfig } | null;
   emailOtpMissing: string[];
@@ -82,6 +83,9 @@ export interface AppConfig {
 export class ConfigError extends Error {
   override name = 'ConfigError';
 }
+
+/** From https://dev.meta.ai/docs/models (verified 2026-11-04). */
+export const DEFAULT_META_MODEL = 'muse-spark-1.3';
 
 const EMULATOR_VARS = ['FIREBASE_AUTH_EMULATOR_HOST', 'FIREBASE_STORAGE_EMULATOR_HOST'] as const;
 
@@ -127,7 +131,7 @@ export function loadConfig(raw: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError('DATABASE_URL is required (see apps/api/.env.example)');
   }
 
-  const gemini = e.GEMINI_API_KEY && e.GEMINI_MODEL ? { apiKey: e.GEMINI_API_KEY, model: e.GEMINI_MODEL } : null;
+  const meta = e.META_API_KEY ? { apiKey: e.META_API_KEY, model: e.META_MODEL ?? DEFAULT_META_MODEL } : null;
 
   // --- Email OTP ----------------------------------------------------------
   const missing: string[] = [];
@@ -156,8 +160,8 @@ export function loadConfig(raw: NodeJS.ProcessEnv = process.env): AppConfig {
     deployed,
     databaseUrl: e.DATABASE_URL,
     firebase: { projectId: e.FIREBASE_PROJECT_ID, storageBucket: e.FIREBASE_STORAGE_BUCKET, useEmulators },
-    gemini,
-    geminiUnavailableReason: gemini ? null : 'not_configured',
+    meta,
+    aiUnavailableReason: meta ? null : 'not_configured',
     emailOtp,
     emailOtpMissing: missing,
     webDistDir: e.WEB_DIST_DIR,

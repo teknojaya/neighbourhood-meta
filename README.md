@@ -7,7 +7,7 @@ requires a stored review card and explicit confirmation. Recipients arrange
 their own transport and collect from an owner or a community point.
 
 React 19/Vite/Tailwind PWA, Express 5, shared Zod contracts, PostgreSQL 17 with
-Prisma migrations, Firebase Auth/Storage/FCM, and server-side Gemini.
+Prisma migrations, Firebase Auth/Storage/FCM, and server-side Meta Model API (Muse Spark).
 
 # Live App:
 ## https://neighbourhood-web-app.web.app
@@ -33,7 +33,7 @@ Requirements: Node **24.12+**, npm, PostgreSQL 17, Java **21+** for emulators.
 6. Open http://localhost:5173. Emulator-only sign-in offers Owner, Neighbour
    and Volunteer accounts. Real sign-in supports Google or email OTP.
 
-Set `GEMINI_API_KEY` only in the API env to enable Ask, image understanding and
+Set `META_API_KEY` only in the API env to enable Ask, image understanding and
 matching. Without it the UI reports AI unavailable. Email OTP needs SMTP and
 `OTP_SECRET`; browser push needs real Firebase credentials and a public VAPID
 key. See the [integration runbook](docs/integration-handoff.md).
@@ -50,14 +50,14 @@ applying migrations. Five account buttons are available at `/login`.
 |---|---|
 | `npm run check` | Types, lint, unit tests, API/PWA production build |
 | `npm run test:db` | Isolated PostgreSQL permission, stock and concurrency tests |
-| `npm run smoke:marketplace` | Real Gemini/bucket and two-user mobile journey; local disposable fixtures only |
+| `npm run smoke:marketplace` | Real Meta model/bucket and two-user mobile journey; local disposable fixtures only |
 | `npm run smoke:ui` | Local demo navigation, draft recovery, loading/empty states and responsive captures |
 | `npm run smoke:ui-refinements` | Ask photo controls, no-location/pending states and map radius/recovery; synthetic test tiles |
 | `npm run smoke:playground` | Five separate seeded logins, complete profiles, activity/history and product map markers |
-| `npm run smoke:ask-agent` | Real Gemini streaming, sequential Q&A, first photo, approval-only publication, clothing search and collapsible results |
+| `npm run smoke:ask-agent` | Real Meta model streaming, sequential Q&A, first photo, approval-only publication, clothing search and collapsible results |
 | `npm run smoke:ask-inputs` | Real Profile save, coordinate validation/cancel, safe chat continuation, legacy setup controls and responsive location form; AI continuation stubbed |
 | `npm run smoke:conversations-saved` | Two browsers: private message photos, product thumbnails and private bookmark persistence/removal |
-| `npm run smoke:search -w @neighbourhood/api` | Real Gemini radius follow-ups, farther matches and honest empty results |
+| `npm run smoke:search -w @neighbourhood/api` | Real Meta model radius follow-ups, farther matches and honest empty results |
 | `npm run smoke:unread` | Authorized unread counts and header read-state updates; disposable local fixtures |
 | `npm run smoke:ask -w @neighbourhood/api` | Real tools, private images, confirmation and history |
 | `npm run maintenance -w @neighbourhood/api` | Request expiry, push outbox and orphan photo cleanup |
