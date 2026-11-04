@@ -20,7 +20,12 @@ import { PrismaRequestsService } from '../requests/requests.service.js';
 import { PrismaConversationsService } from '../conversations/conversations.service.js';
 import { PrismaNotificationsService } from '../notifications/notifications.service.js';
 import { PrismaAskService } from './ask.service.js';
-import type { AskModel } from './ask.model.js';
+import { toChatMessages, type AskModel } from './ask.model.js';
+import { DESCRIPTION_QUESTION } from './ask.presentation.js';
+import { ListingsService } from '../listings/listings.service.js';
+import { LoansService } from '../loans/loans.service.js';
+import { CommunitiesService } from '../communities/communities.service.js';
+import type { ObjectStorage } from '../../lib/storage.js';
 import type { AskImageStorage } from './ask.images.js';
 
 const db = createDb(testDatabaseUrl());
@@ -43,12 +48,20 @@ class Images implements AskImageStorage {
   async delete(path: string) { if (this.failDelete) throw new Error('storage unavailable'); this.files.delete(path); }
   async *candidates() { for (const path of this.files.keys()) yield { path, createdAt: new Date(0) }; }
 }
-async function fixture(model = new FakeModel()) {
+class MemoryPhotos implements ObjectStorage {
+  files = new Map<string, Buffer>();
+  async signedReadUrl(path: string) { return '/photo/' + path; }
+  async put(path: string, bytes: Buffer) { this.files.set(path, bytes); }
+  async get(path: string) { return this.files.get(path)!; }
+  async remove(path: string) { this.files.delete(path); }
+}
+async function fixture(model = new FakeModel(), options: { marketplace?: boolean } = {}) {
   const firebaseUid = `ask-${randomUUID()}`;
   const user = await db.user.create({ data: { firebaseUid, email: `${firebaseUid}@example.test`, emailVerified: true } });
   users.push(user.id);
   const images = new Images();
-  const ask = new PrismaAskService(db, model, images, services);
+  const listings = new ListingsService(db, new MemoryPhotos());
+  const ask = new PrismaAskService(db, model, images, options.marketplace ? { ...services, marketplace: { listings, loans: new LoansService(db), communities: new CommunitiesService(db) } } : services);
   const session = await ask.create(user.id, randomUUID());
   const access = new PrismaAccessRepository(db);
   const app = createApp({ config: testConfig(), tokenVerifier: new FakeVerifier(), users: new UserProvisioningService(new PrismaUsersRepository(db)), access,
@@ -130,6 +143,38 @@ describe('Ask sessions, agent tools and confirmed actions against PostgreSQL', (
     } finally { release(); await new Promise<void>(resolve => server.close(() => resolve())); }
   });
 
+  it('records a declined description and prepares publication when the model keeps repeating draft_listing', async () => {
+    // Mirrors the observed Meta trace: the same draft_listing call every turn, never a description.
+    const draftCall = (call: number): Content => ({ role: 'model', parts: [{ text: 'Got it.' }, { functionCall: { id: `call-${call}`, name: 'draft_listing', args: { title: 'Rice cooker', category: 'appliances', mode: 'donate', condition: 'like_new', quantity: 1 } } }] });
+    const f = await fixture(new FakeModel((contents, call) => contents.at(-1)?.parts?.some(part => part.functionResponse) ? { role: 'model', parts: [{ text: 'Your draft is saved.' }] } : draftCall(call)), { marketplace: true });
+    await db.user.update({ where: { id: f.user.id }, data: { homeLat: -6.2, homeLng: 106.816, areaLabel: 'Menteng' } });
+    const photo = await f.ask.upload(f.user.id, f.session.id, await sharp({ create: { width: 3, height: 3, channels: 3, background: 'red' } }).png().toBuffer(), 'image/png');
+    const latest = async () => (await f.ask.detail(f.user.id, f.session.id)).messages.items.at(-1)!;
+    const description = async () => (await db.askDraft.findFirstOrThrow({ where: { sessionId: f.session.id } })).data as { description: string | null };
+
+    await f.ask.send(f.user.id, f.session.id, { ...send('I want to donate 1 rice cooker in like new condition.'), attachmentIds: [photo.id] });
+    expect((await latest()).text).toBe(DESCRIPTION_QUESTION);
+    expect((await description()).description).toBeNull();
+
+    await f.ask.send(f.user.id, f.session.id, send('No extra description.'));
+    expect((await description()).description).toBe('');
+    expect((await latest()).text).not.toBe(DESCRIPTION_QUESTION);
+    expect((await latest()).parts).toMatchObject([{ kind: 'listing_draft' }]);
+    expect(await db.askAction.count({ where: { sessionId: f.session.id } })).toBe(0);
+
+    const before = f.model.calls.length;
+    await f.ask.send(f.user.id, f.session.id, send('okay just post it now.'));
+    // The newest user message reaches the model last, after the draft state.
+    const messages = toChatMessages('system', f.model.calls[before]!);
+    expect(messages.at(-1)).toEqual({ role: 'user', content: 'okay just post it now.' });
+    expect(messages.at(-2)).toMatchObject({ role: 'user', content: expect.stringContaining('Current private listing draft') });
+    const last = await latest();
+    expect(last.text).not.toBe(DESCRIPTION_QUESTION);
+    expect(last.parts).toMatchObject([{ kind: 'action', action: { status: 'pending', payload: { kind: 'marketplace', action: { operation: 'listing_publish', body: { title: 'Rice cooker', description: '', quantity: 1 } } } } }]);
+    // Only one tool call ran and nothing is published before the resident presses Confirm.
+    expect(f.model.calls.length - before).toBe(1);
+    expect(await db.listing.count({ where: { ownerId: f.user.id } })).toBe(0);
+  });
   it('hands questions back without preparing an action and retains draft photos through text follow-ups', async () => {
     const f = await fixture(new FakeModel((_contents, call) => call === 1 ? { role: 'model', parts: [...prepare('prepare_save_need', { extraction }).parts!, ...prepare('ask_questions', { questions: [{ question: 'Give away or lend?', options: ['Give away', 'Lend'] }, { question: 'What condition?', options: ['Good', 'Fair'] }] }).parts!] } : call === 2 ? prepare('draft_listing', { title: 'Cotton jackets', category: 'clothing', mode: 'donate', condition: 'good', quantity: 2, description: 'Two jackets.' }) : call === 4 ? prepare('draft_listing', { title: 'Two cotton jackets' }) : reply));
     const photo = await f.ask.upload(f.user.id, f.session.id, await sharp({ create: { width: 3, height: 3, channels: 3, background: 'green' } }).png().toBuffer(), 'image/png');

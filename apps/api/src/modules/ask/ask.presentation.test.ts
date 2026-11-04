@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { ListingPublicSchema, type AskMessage, type AskPart } from '@neighbourhood/shared';
-import { cardContext, cleanAssistantText, clarifyAffirmation, quantityWasStated, searchReply } from './ask.presentation.js';
+import { cardContext, cleanAssistantText, clarifyAffirmation, descriptionDeclined, DESCRIPTION_QUESTION, quantityWasStated, searchReply, wantsToPublish } from './ask.presentation.js';
 
 const item = ListingPublicSchema.parse({ id: randomUUID(), ownerId: randomUUID(), ownerDisplayName: 'Neighbour', title: 'Cotton jackets', category: 'clothing', mode: 'donate', status: 'active', condition: 'good', description: 'Cotton jackets', stock: { total: 3, reserved: 0, collected: 0 }, photos: [{path:'listings/item/photo.webp',url:'/signed-photo'}], location: {areaLabel:'Jakarta',approxLat:-6.19,approxLng:106.82,distanceKm:2}, collection: {method:'owner_location',communityPointId:null}, appliance:null,lending:null,bestBefore:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString() });
 const empty: AskPart = { kind:'listings', items:[], search:{radiusKm:3,broaderRadiusKm:50,fartherItems:[],mode:'lend',category:'clothing'} };
@@ -37,5 +37,17 @@ describe('grounded Ask presentation', () => {
     expect(searchReply([empty])).not.toMatch(/widen|how far/i);
     expect(searchReply([empty,free])).toContain('free items within 3 km as an alternative');
     expect(searchReply([empty,{kind:'questions',questions:[{question:'Which one?',options:[]}]}])).toBeNull();
+  });
+  it('counts an explicit decline or publish request as answering the description question', () => {
+    const asked = [{ role: 'user', text: 'I want to donate a rice cooker' }, { role: 'assistant', text: DESCRIPTION_QUESTION }];
+    for (const answer of ['No extra description.', 'No extra description', 'nothing else', 'none', 'okay just post it now.', 'tidak ada tambahan'])
+      expect(descriptionDeclined([...asked, { role: 'user', text: answer }])).toBe(true);
+    expect(descriptionDeclined([...asked, { role: 'user', text: 'It has a small scratch on the lid' }])).toBe(false);
+    expect(descriptionDeclined([{ role: 'user', text: 'no' }, { role: 'assistant', text: DESCRIPTION_QUESTION }])).toBe(false);
+    expect(descriptionDeclined([{ role: 'assistant', text: 'Would you like to give this away?' }, { role: 'user', text: 'No' }])).toBe(false);
+    expect(wantsToPublish('okay just post it now.')).toBe(true);
+    expect(wantsToPublish('Please publish this')).toBe(true);
+    expect(wantsToPublish('What does publishing involve?')).toBe(false);
+    expect(quantityWasStated([{ role: 'user', text: 'I have 1 rice cooker' }], 1)).toBe(true);
   });
 });

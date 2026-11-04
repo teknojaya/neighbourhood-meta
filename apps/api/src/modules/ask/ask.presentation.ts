@@ -27,9 +27,25 @@ const indonesian = ['nol', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tuju
 export function quantityWasStated(messages: Array<{role:string;text:string}>, quantity: number) {
   const count = `(?:${quantity}|${numbers[quantity] ?? quantity}|${indonesian[quantity] ?? quantity})`;
   const explicit = new RegExp(`\\b(?:quantity|jumlah|sebanyak)\\s*[:=]?\\s*${count}\\b|\\b${count}\\b(?:\\s+[\\p{L}-]+){0,3}\\s+(?:items?|jackets?|shirts?|books?|pieces?|pairs?|clothes|tools?|chairs?|bags?|barang|baju|jaket|buku|unit|buah|potong)\\b`, 'iu');
-  const offering = new RegExp(`\\b(?:donate|donating|share|sharing|lend|lending|give away|giving away|donasi|donasikan|bagikan|pinjamkan)\\s+(?:(?:my|these|those)\\s+)?${count}\\b`, 'iu');
+  const offering = new RegExp(`\\b(?:donate|donating|share|sharing|lend|lending|give away|giving away|i have|i've got|donasi|donasikan|bagikan|pinjamkan|punya|ada)\\s+(?:(?:my|these|those)\\s+)?${count}\\b`, 'iu');
   return messages.some((message, index) => message.role === 'user' && (explicit.test(message.text) || offering.test(message.text) ||
     /how many|what quantity|berapa|jumlah/i.test(messages[index - 1]?.text ?? '') && new RegExp(`^\\s*${count}(?:\\s|[.!]|$)`, 'iu').test(message.text)));
+}
+
+export const DESCRIPTION_QUESTION = 'Is there anything else a neighbour should know about it?';
+export const NO_DESCRIPTION_OPTION = 'No extra description';
+const declines = /^\s*(?:no|nope|none|nothing|n\/?a|skip|tidak|tidak ada|gak ada|ga ada|nggak ada|enggak)\b|\bno (?:extra |more |additional |other )?(?:description|details?|info(?:rmation)?)\b|\bnothing (?:else|more|to add)\b|\bthat'?s (?:all|it)\b|\bleave it (?:blank|empty)\b|\btanpa (?:deskripsi|keterangan)\b|\btidak ada (?:lagi|tambahan)\b/i;
+const publishes = /\b(?:post|publish|list)\s+(?:it|this|them|the (?:item|listing|draft))\b|\b(?:post|publish)\b[^.?!]*\bnow\b|\bgo ahead\b|\bterbitkan\b|\bposting(?:kan)?\b|\bunggah\b/i;
+export const wantsToPublish = (text: string) => publishes.test(text);
+
+/**
+ * True when the resident answered the server's description question by declining
+ * or asking to publish. Only answers after the latest description question count.
+ */
+export function descriptionDeclined(messages: Array<{role:string;text:string}>) {
+  const asked = messages.findLastIndex(message => message.role === 'assistant' && message.text.trim() === DESCRIPTION_QUESTION);
+  if (asked < 0) return false;
+  return messages.slice(asked + 1).some(message => message.role === 'user' && (declines.test(message.text) || publishes.test(message.text)));
 }
 
 export function clarifyAffirmation(messages: AskMessage[], text: string): AskPart | null {

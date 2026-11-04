@@ -3,6 +3,7 @@ import { QuestionCard } from './QuestionCard';
 import { PublishDraft } from './PublishDraft';
 import { PointDraft } from './PointDraft';
 import { MarketplacePreview } from './MarketplacePreview';
+import { MatchList } from '../needs/NeedMatches';
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
@@ -47,7 +48,7 @@ export function AskCard({ part, sessionId, onEditDraft, onReply, onInput, disabl
   switch (part.kind) {
     case 'input_request': return active ? <div className="space-y-2"><ActionPill type="button" disabled={disabled || part.input === 'photo' && !imagesAvailable} onClick={() => onInput(part.input)}>{part.input === 'photo' ? 'Add a photo' : part.input === 'profile_location' ? 'Set Profile location' : 'Enter custom pickup details'}</ActionPill>{part.input === 'photo' && <p className="text-sm text-stone-600">A photo is required to publish an item.</p>}</div> : null;
     case 'questions': return <QuestionCard part={part} onReply={onReply} disabled={disabled} active={active} />;
-    case 'matches': return <Card className="space-y-3"><h3 className="font-semibold">Matches for your saved need</h3>{part.items.length === 0 && <p>No matches nearby yet.</p>}{part.items.map(item => <Link className="block border-t py-3" key={item.listing.id} to={'/listings/' + item.listing.id}><strong>{item.listing.title}</strong><p className="text-sm">{item.reason}</p>{item.missingInfo.map((info,i) => <p className="text-xs text-stone-600" key={i}>{info}</p>)}</Link>)}</Card>;
+    case 'matches': return <Card className="space-y-3"><h3 className="font-semibold">Matches for your saved need</h3>{part.items.length === 0 ? <p>No matches nearby yet.</p> : <MatchList items={part.items} explanationSource={part.explanationSource} />}</Card>;
     case 'listings': return <SearchListingCard part={part} onReply={onReply} active={active} radiusAnswered={radiusAnswered} />;
     case 'loans': return <Card>{part.items.length === 0 && <p>No loans yet.</p>}{part.items.map(item => <Link className="block py-3" key={item.id} to={'/activity?loan=' + item.id}>{item.listingTitle} · {item.status}<p className="text-sm">{item.startDate} → {item.endDate}{item.overdue ? ' · Overdue' : ''}</p></Link>)}</Card>;
     case 'communities': return <Card>{part.items.map(item => <div key={item.id}><Link className="block py-3" to={'/communities?community=' + item.id}><strong>{item.name}</strong><p>{item.areaLabel} · {item.memberCount} members</p></Link><PointDraft communityId={item.id} sessionId={sessionId} /></div>)}</Card>;

@@ -85,10 +85,13 @@ export class MetaAskModel implements AskModel {
         if (!choice) continue;
         if (choice.finish_reason === 'length') throw new HttpError('AI_INVALID_OUTPUT', 'The assistant did not finish its response');
         if (choice.delta?.content) text += choice.delta.content;
-        // Tool-call arguments stream as fragments keyed by index.
+        // Tool-call arguments stream as fragments keyed by index. Without an index,
+        // a new id starts a new call so separate calls are never concatenated.
         for (const delta of choice.delta?.tool_calls ?? []) {
-          const call = calls[delta.index ?? 0] ??= { arguments: '' };
-          if (delta.id) call.id = delta.id;
+          const last = calls.length - 1;
+          const index = delta.index ?? (delta.id && calls[last]?.id && calls[last].id !== delta.id ? last + 1 : Math.max(last, 0));
+          const call = calls[index] ??= { arguments: '' };
+          if (delta.id) call.id ??= delta.id;
           if (delta.function?.name) call.name ??= delta.function.name;
           call.arguments += delta.function?.arguments ?? '';
         }
@@ -96,7 +99,10 @@ export class MetaAskModel implements AskModel {
       }
       if (onText && text) await onText(text.slice(0, 8000));
       const parts: Part[] = text ? [{ text }] : [];
+      const seen = new Set<string>();
       for (const call of calls.filter(Boolean)) {
+        if (seen.has(`${call.name}\0${call.arguments}`)) continue;
+        seen.add(`${call.name}\0${call.arguments}`);
         let args: unknown;
         try { args = call.arguments ? JSON.parse(call.arguments) : {}; } catch { args = null; }
         if (!call.name || !args || typeof args !== 'object' || Array.isArray(args)) throw new HttpError('AI_INVALID_OUTPUT', 'The assistant returned a malformed tool call');

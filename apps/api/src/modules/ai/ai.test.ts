@@ -1,3 +1,5 @@
+import http from 'node:http';
+import { getEventListeners } from 'node:events';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { AI_LIMITS, NeedsExtractionSchema } from '@neighbourhood/shared';
@@ -150,6 +152,27 @@ describe('Meta adapter', () => {
     expect(chunks.map(c => c.choices?.[0]?.delta?.content).join('')).toBe('Hi there');
   });
 
+  it('does not leave fetch listeners on a shared turn signal and still aborts in-flight requests', async () => {
+    let hang = false;
+    const server = http.createServer((req, res) => { req.resume(); req.on('end', () => {
+      if (hang) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': waiting\n\n'); return; }
+      res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end('data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n');
+    }); });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const client = new MetaChatClient('k', `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`);
+      const turn = new AbortController();
+      for (let i = 0; i < 12; i++) for await (const _chunk of client.stream({ model: 'm', messages: [], max_completion_tokens: 1 }, turn.signal)) { /* drain */ }
+      expect(getEventListeners(turn.signal, 'abort')).toHaveLength(0);
+      hang = true;
+      const pending = (async () => { for await (const _chunk of client.stream({ model: 'm', messages: [], max_completion_tokens: 1 }, turn.signal)) { /* wait */ } })();
+      setTimeout(() => turn.abort(new DOMException('turn timed out', 'TimeoutError')), 50);
+      const err = await pending.catch((e: unknown) => e);
+      expect(mapAiError(err).code).toBe('AI_TIMEOUT');
+      expect(getEventListeners(turn.signal, 'abort')).toHaveLength(0);
+    } finally { server.closeAllConnections(); server.close(); }
+  });
+
   it('translates history into Chat Completions messages with paired tool results and images', () => {
     const messages = toChatMessages('sys', [
       { role: 'user', parts: [{ text: 'Look' }, { inlineData: { mimeType: 'image/jpeg', data: 'AAA' } }] },
@@ -174,6 +197,14 @@ describe('Meta adapter', () => {
     const output = await new MetaAskModel('m', client).generate([{ role: 'user', parts: [{ text: 'chair' }] }], tools, AbortSignal.timeout(1000));
     expect(output).toEqual({ role: 'model', parts: [{ text: 'Searching' }, { functionCall: { id: 'c1', name: 'search_listings', args: { query: 'chair' } } }] });
     expect(client.seen[0]!.tools).toEqual([{ type: 'function', function: { name: 'search_listings', description: 'd', parameters: { type: 'object' } } }]);
+    const unindexed = fakeClient(async () => ({}), [
+      { choices: [{ delta: { tool_calls: [{ id: 'a', function: { name: 'my_account', arguments: '{}' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ id: 'b', function: { name: 'get_product_guide', arguments: '{"topic":"roles"}' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ id: 'c', function: { name: 'my_account', arguments: '{}' } }] } }] },
+    ]);
+    expect((await new MetaAskModel('m', unindexed).generate([], tools, AbortSignal.timeout(1000))).parts).toEqual([
+      { functionCall: { id: 'a', name: 'my_account', args: {} } }, { functionCall: { id: 'b', name: 'get_product_guide', args: { topic: 'roles' } } },
+    ]);
     const truncated = fakeClient(async () => ({}), [{ choices: [{ delta: { content: 'x' }, finish_reason: 'length' }] }]);
     await expect(new MetaAskModel('m', truncated).generate([], [], AbortSignal.timeout(1000))).rejects.toMatchObject({ code: 'AI_INVALID_OUTPUT' });
   });

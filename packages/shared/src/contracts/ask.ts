@@ -61,7 +61,7 @@ export type AskInput = z.infer<typeof AskInputSchema>;
 export const AskPartSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('input_request'), input: AskInputSchema, prompt: z.string().trim().min(1).max(300) }),
   z.object({ kind: z.literal('questions'), questions: z.array(z.object({ question: z.string().trim().min(1).max(240), options: z.array(z.string().trim().min(1).max(100)).max(6).default([]) })).min(1).max(4) }),
-  z.object({ kind: z.literal('matches'), items: NeedMatchesSchema.shape.items }),
+  z.object({ kind: z.literal('matches'), items: NeedMatchesSchema.shape.items, explanationSource: NeedMatchesSchema.shape.explanationSource.optional() }),
   z.object({ kind: z.literal('listings'), items: z.array(ListingPublicSchema), search: AskSearchScopeSchema.optional() }),
   z.object({ kind: z.literal('loans'), items: z.array(LoanSchema) }),
   z.object({ kind: z.literal('communities'), items: z.array(CommunitySchema) }),

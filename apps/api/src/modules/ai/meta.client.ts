@@ -53,6 +53,18 @@ function upstreamError(status: number, body: unknown): MetaApiError {
   return new MetaApiError(status, identifier(error?.type), identifier(error?.code));
 }
 
+/**
+ * fetch() keeps a listener on the signal it is given. A turn signal is shared by
+ * several requests, so each request gets its own controller that is unlinked
+ * (and aborted, cancelling any unread body) when the request ends.
+ */
+function requestSignal(parent: AbortSignal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(parent.reason);
+  if (parent.aborted) abort(); else parent.addEventListener('abort', abort, { once: true });
+  return { signal: controller.signal, release: () => { parent.removeEventListener('abort', abort); controller.abort(); } };
+}
+
 export class MetaChatClient implements ChatClient {
   readonly #apiKey: string;
   constructor(apiKey: string, private readonly baseUrl = META_API_BASE_URL, private readonly fetchImpl: typeof fetch = fetch) {
@@ -60,28 +72,34 @@ export class MetaChatClient implements ChatClient {
   }
 
   async complete(body: ChatCompletionRequest, signal: AbortSignal): Promise<ChatCompletion> {
-    const res = await this.post({ ...body, stream: false }, signal);
-    return (await res.json()) as ChatCompletion;
+    const request = requestSignal(signal);
+    try {
+      const res = await this.post({ ...body, stream: false }, request.signal);
+      return (await res.json()) as ChatCompletion;
+    } finally { request.release(); }
   }
 
   async *stream(body: ChatCompletionRequest, signal: AbortSignal): AsyncIterable<ChatCompletionChunk> {
-    const res = await this.post({ ...body, stream: true }, signal);
-    if (!res.body) throw new MetaApiError(502);
-    let buffer = '';
-    for await (const text of res.body.pipeThrough(new TextDecoderStream())) {
-      buffer += text;
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (data === '[DONE]') return;
-        if (!data) continue;
-        const chunk = JSON.parse(data) as ChatCompletionChunk & { error?: unknown };
-        if (chunk.error) throw upstreamError(502, chunk);
-        yield chunk;
+    const request = requestSignal(signal);
+    try {
+      const res = await this.post({ ...body, stream: true }, request.signal);
+      if (!res.body) throw new MetaApiError(502);
+      let buffer = '';
+      for await (const text of res.body.pipeThrough(new TextDecoderStream())) {
+        buffer += text;
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') return;
+          if (!data) continue;
+          const chunk = JSON.parse(data) as ChatCompletionChunk & { error?: unknown };
+          if (chunk.error) throw upstreamError(502, chunk);
+          yield chunk;
+        }
       }
-    }
+    } finally { request.release(); }
   }
 
   private async post(body: ChatCompletionRequest & { stream: boolean }, signal: AbortSignal): Promise<Response> {

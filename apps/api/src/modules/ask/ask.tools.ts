@@ -17,7 +17,7 @@ import { actionDto } from './ask.dto.js';
 import { ModelMarketplaceActionSchema, authorizeProposal, marketplaceSummary, type MarketplaceServices } from './ask.marketplace.js';
 import { PRODUCT_GUIDE } from './product-knowledge.js';
 import { normalizeListingSearch } from '../listings/search-terms.js';
-import { quantityWasStated } from './ask.presentation.js';
+import { DESCRIPTION_QUESTION, NO_DESCRIPTION_OPTION, descriptionDeclined, quantityWasStated, wantsToPublish } from './ask.presentation.js';
 
 export interface AskServices {
   marketplace?: MarketplaceServices;
@@ -48,7 +48,7 @@ export class AskTools {
       const market = services.marketplace;
       this.add('list_saved_items', 'Read the caller’s bookmarked actual products. Saved items are distinct from saved needs. Does not reserve stock or change anything.', z.strictObject({}), async (_args, ctx) => { const rows = await db.savedListing.findMany({ where: { userId: ctx.userId }, orderBy: { createdAt: 'desc' }, take: 20 }); const items: ListingPublic[] = []; for (const row of rows) { try { items.push((await market.listings.getListingDetail(ctx.userId, row.listingId)).listing); } catch (err) { if (!(err instanceof HttpError && ['NOT_FOUND','FORBIDDEN'].includes(err.code))) throw err; } } return { result: { items, unavailableCount: rows.length - items.length }, parts: [{ kind: 'listings', items }] }; });
       this.add('list_categories', 'Read supported product categories.', z.strictObject({}), async () => ({ result: { categories: ItemCategorySchema.options }, parts: [] }));
-      if (market.matching) this.add('match_saved_need', 'Find real eligible nearby matches for a caller-owned saved need and provide grounded explanations. Requires a saved Profile location.', z.strictObject({ needId: z.uuid() }), async (args, ctx) => { const result = await market.matching!.matches(ctx.userId, args.needId); return { result, parts: [{ kind: 'matches', items: result.items }] }; });
+      if (market.matching) this.add('match_saved_need', 'Find real eligible nearby matches for a caller-owned saved need and provide grounded explanations. Requires a saved Profile location.', z.strictObject({ needId: z.uuid() }), async (args, ctx) => { const result = await market.matching!.matches(ctx.userId, args.needId); return { result, parts: [{ kind: 'matches', items: result.items, explanationSource: result.explanationSource }] }; });
       this.add('search_listings', 'Search real eligible nearby items using the caller’s private saved location. Query keywords should be short item names, not whole sentences. Radius is kilometres.', z.strictObject({ query: z.string().max(100).optional(), category: ItemCategorySchema.optional(), mode: ListingModeSchema.optional(), radiusKm: RadiusKmSchema.optional() }), async (args, ctx) => {
         const user = await db.user.findUniqueOrThrow({ where: { id: ctx.userId } });
         if (user.homeLat === null || user.homeLng === null) throw new HttpError('VALIDATION_FAILED', 'Set your location in Profile to search nearby');
@@ -134,15 +134,16 @@ export class AskTools {
       if (conversation.closed) throw new HttpError('CONFLICT', 'This conversation is closed');
       return this.propose(ctx, { kind: 'send_message', ...args }, conversation.listingTitle ?? 'Neighbour conversation');
     });
-    this.add('draft_listing', 'Create or update the current private listing draft after clarifying unknown quantity and condition with the user. Do not infer those from photos or invent defaults. If you need an answer first, use ask_questions instead. Supply only changed fields. Null means unknown. Photos from this turn attach automatically; earlier draft photos are preserved. includePhotos=false removes draft photos. It cannot publish.', AskListingDraftDataSchema.omit({ attachmentIds: true }).partial().extend({ includePhotos: z.boolean().optional() }), async ({ includePhotos, ...args }, ctx) => {
+    this.add('draft_listing', 'Create or update the current private listing draft after clarifying unknown quantity and condition with the user. Do not infer those from photos or invent defaults. If you need an answer first, use ask_questions instead. Supply only changed fields. Null means unknown. If the user has nothing to add to the description, set description to an empty string. When the user asks to post or publish, call this with any remaining facts; a complete draft then shows the publication review card. Photos from this turn attach automatically; earlier draft photos are preserved. includePhotos=false removes draft photos. It cannot publish.', AskListingDraftDataSchema.omit({ attachmentIds: true }).partial().extend({ includePhotos: z.boolean().optional() }), async ({ includePhotos, ...args }, ctx) => {
       const previous = await db.askDraft.findUnique({ where: { sessionId_kind: { sessionId: ctx.sessionId, kind: 'listing' } } });
       const latest = await db.askMessage.findFirst({ where: { sessionId: ctx.sessionId, role: 'user' }, orderBy: { sequence: 'desc' } });
       const earlierPhoto = (!previous || !Object.hasOwn(previous.data as object, 'attachmentIds')) && !latest?.attachmentIds.length ? await db.askMessage.findFirst({ where: { sessionId: ctx.sessionId, role: 'user', attachmentIds: { isEmpty: false }, ...(previous ? { createdAt: { lte: previous.updatedAt } } : {}) }, orderBy: { sequence: 'desc' } }) : null;
-      if (args.quantity != null) {
-        const history = await db.askMessage.findMany({ where: { sessionId: ctx.sessionId }, orderBy: { sequence: 'asc' }, select: { role: true, text: true } });
-        if (!quantityWasStated(history, args.quantity)) args.quantity = null;
-      }
+      const history = await db.askMessage.findMany({ where: { sessionId: ctx.sessionId }, orderBy: { sequence: 'asc' }, select: { role: true, text: true } });
+      if (args.quantity != null && !quantityWasStated(history, args.quantity)) args.quantity = null;
+      if (args.description?.trim().replace(/[.!]+$/, '').toLowerCase() === NO_DESCRIPTION_OPTION.toLowerCase()) args.description = '';
       const data = AskListingDraftDataSchema.parse({ title: null, category: null, mode: null, condition: null, quantity: null, description: null, ...(previous?.data as object ?? {}), ...args, ...(includePhotos === false ? { attachmentIds: [] } : latest?.attachmentIds.length ? { attachmentIds: latest.attachmentIds } : earlierPhoto ? { attachmentIds: earlierPhoto.attachmentIds } : {}) });
+      // The server asked this optional question, so it records an explicit "nothing to add".
+      if (data.description === null && descriptionDeclined(history)) data.description = '';
       const row = await db.askDraft.upsert({ where: { sessionId_kind: { sessionId: ctx.sessionId, kind: 'listing' } }, create: { sessionId: ctx.sessionId, kind: 'listing', data }, update: { data } });
       const attachments = await db.askAttachment.findMany({ where: { sessionId: ctx.sessionId, id: { in: data.attachmentIds } } });
       const draft = AskListingDraftSchema.parse({ ...row, attachments, updatedAt: row.updatedAt.toISOString() });
@@ -156,8 +157,16 @@ export class AskTools {
         : data.mode === 'lend' && !data.maxLoanDays ? { kind: 'questions', questions: [{ question: 'For how many days can a neighbour borrow it?', options: ['3 days', '7 days', '14 days'] }] }
         : !data.title ? { kind: 'questions', questions: [{ question: 'What would you like to call this item?', options: [] }] }
         : !data.category ? { kind: 'questions', questions: [{ question: 'Which category fits this item best?', options: ['Groceries', 'Clothing', 'Books', 'Household', 'Appliances', 'Mobility aids'] }] }
-        : data.description === null ? { kind: 'questions', questions: [{ question: 'Is there anything else a neighbour should know about it?', options: ['No extra description'] }] }
+        : data.description === null ? { kind: 'questions', questions: [{ question: DESCRIPTION_QUESTION, options: [NO_DESCRIPTION_OPTION] }] }
         : undefined;
+      // An explicit publish request on a complete draft goes straight to the review card.
+      // The card still requires the resident's Confirm press before anything is published.
+      const publish = this.tools.get('prepare_publish_listing');
+      if (!missing && publish && latest && wantsToPublish(latest.text)) {
+        const prepared = await publish.execute({ useSavedLocation: true }, ctx);
+        const card = prepared.parts.some(part => part.kind === 'action');
+        return { ...prepared, result: { draft, publication: prepared.result }, ...(card ? { reply: 'Here is your listing for review. Press Confirm to publish it.' } : {}) };
+      }
       return { result: { draft, publicationAvailable: Boolean(services.marketplace), waitingForUser: Boolean(missing) }, parts: missing ? [missing] : [{ kind: 'listing_draft', draft }] };
     });
     if (services.marketplace) this.add('prepare_publish_listing', 'Prepare publication of the current complete private draft using the caller’s saved Profile pickup location. Ask user to choose saved location first. Requires confirmed condition, quantity, offering and maximum loan days for lending. Preserves draft photos. Creates a confirmation card only, never publishes until user presses Confirm. Custom pickup details use the secure draft form.', z.strictObject({ useSavedLocation: z.literal(true) }), async (_args, ctx) => {
@@ -165,6 +174,10 @@ export class AskTools {
       if (!row) throw new HttpError('VALIDATION_FAILED', 'Prepare a listing draft first');
       const draft = AskListingDraftDataSchema.parse(row.data);
       const history = await db.askMessage.findMany({ where: { sessionId: ctx.sessionId }, orderBy: { sequence: 'asc' }, select: { role: true, text: true } });
+      if (draft.description === null && descriptionDeclined(history)) {
+        draft.description = '';
+        await db.askDraft.update({ where: { id: row.id }, data: { data: { ...(row.data as object), description: '' } } });
+      }
       if (draft.quantity === null || !quantityWasStated(history, draft.quantity)) return { result: { waitingForUser: true, missingFact: 'quantity', committed: false }, parts: [{ kind: 'questions', questions: [{ question: 'How many items are you sharing?', options: ['1', '2', '3'] }] }] };
       if (!Object.hasOwn(row.data as object, 'attachmentIds')) draft.attachmentIds = (await db.askMessage.findFirst({ where: { sessionId: ctx.sessionId, role: 'user', attachmentIds: { isEmpty: false }, createdAt: { lte: row.updatedAt } }, orderBy: { sequence: 'desc' } }))?.attachmentIds.slice(0, 2) ?? [];
       if (!draft.attachmentIds.length) return { result: { waitingForUser: true, requiredInput: 'photo', committed: false }, parts: [{ kind: 'input_request', input: 'photo', prompt: 'Please add a photo of the item before publishing.' }] };
