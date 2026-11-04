@@ -4,6 +4,7 @@ import { getStorage } from 'firebase-admin/storage';
 import { getMessaging } from 'firebase-admin/messaging';
 import { FcmPushSender } from './modules/notifications/push.adapter.js';
 import { MaintenanceService } from './modules/notifications/maintenance.service.js';
+import { GeoapifyPlaces } from './modules/places/geoapify.client.js';
 import { createApp } from './app.js';
 import { ConfigError, loadConfig } from './config.js';
 import { createDb } from './lib/db.js';
@@ -111,6 +112,7 @@ function main() {
     listings,
     matching,
     photoStorage,
+    places: config.geoapifyApiKey ? new GeoapifyPlaces(config.geoapifyApiKey) : null,
   });
 
   const server = app.listen(config.port, (error) => {
@@ -127,6 +129,7 @@ function main() {
       storageDriver: storage.driver,
       aiAvailable: generator !== null,
       aiModel: config.meta?.model ?? null,
+      placeSearchAvailable: config.geoapifyApiKey !== null,
       emailOtpAvailable: config.emailOtp !== null,
       // Names only, never values.
       emailOtpMissing: config.emailOtpMissing.join(',') || null,

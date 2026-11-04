@@ -39,6 +39,8 @@ const EnvSchema = z.object({
   ),
 
   /** HMAC key for email OTP codes (≥ 32 chars). */
+  /** Geoapify geocoding key for place autocomplete (server-side only). */
+  GEOAPIFY_API_KEY: optionalString,
   OTP_SECRET: optionalString,
   SMTP_HOST: optionalString,
   SMTP_PORT: optionalString.pipe(z.string().regex(/^\d{1,5}$/, 'SMTP_PORT must be a port number').optional()),
@@ -71,6 +73,8 @@ export interface AppConfig {
   databaseUrl: string | undefined;
   firebase: { projectId: string | undefined; storageBucket: string | undefined; useEmulators: boolean };
   meta: { apiKey: string; model: string } | null;
+  /** Server-side place search; null hides autocomplete and keeps device location. */
+  geoapifyApiKey: string | null;
   /** Why the AI model is unavailable; shown as an honest state in the UI. */
   aiUnavailableReason: 'not_configured' | null;
   /** Null when OTP email delivery is not fully configured. */
@@ -161,6 +165,7 @@ export function loadConfig(raw: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: e.DATABASE_URL,
     firebase: { projectId: e.FIREBASE_PROJECT_ID, storageBucket: e.FIREBASE_STORAGE_BUCKET, useEmulators },
     meta,
+    geoapifyApiKey: e.GEOAPIFY_API_KEY ?? null,
     aiUnavailableReason: meta ? null : 'not_configured',
     emailOtp,
     emailOtpMissing: missing,

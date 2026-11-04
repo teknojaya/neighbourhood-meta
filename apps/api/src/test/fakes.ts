@@ -15,6 +15,7 @@ import type { ConversationsService } from '../modules/conversations/conversation
 import type { NotificationsService } from '../modules/notifications/notifications.service.js';
 import type { NeedsService } from '../modules/needs/needs.service.js';
 import { HttpError } from '../lib/http.js';
+import type { PlaceProvider } from '../modules/places/geoapify.client.js';
 
 /**
  * Accepts "test-id-token-for-<firebaseUid>[--<provider>]" and rejects everything
@@ -110,7 +111,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 export function buildTestApp(opts: {
   generator?: StructuredGenerator | null; otp?: OtpDeps | null; firebaseConfigured?: boolean;
   requests?: RequestsService; conversations?: ConversationsService; notifications?: NotificationsService;
-  needs?: NeedsService; config?: Partial<AppConfig>;
+  needs?: NeedsService; config?: Partial<AppConfig>; places?: PlaceProvider | null;
 } = {}) {
   const access = new InMemoryAccess();
   const users = new InMemoryUsers();
@@ -127,6 +128,7 @@ export function buildTestApp(opts: {
     conversations: opts.conversations ?? { get: unavailable, list: unavailable, messages: unavailable, send: unavailable, markRead: unavailable },
     notifications: opts.notifications ?? { list: unavailable, markRead: unavailable, unread: unavailable },
     needs: opts.needs ?? { list: unavailable, save: unavailable, delete: unavailable },
+    places: opts.places ?? null,
   });
   return { app, access, users, profilesRepo };
 }

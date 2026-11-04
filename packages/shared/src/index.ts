@@ -17,3 +17,4 @@ export * from './contracts/needs.js';
 export * from './contracts/ask.js';
 export * from './ai/contracts.js';
 export * from './contracts/marketplace-actions.js';
+export * from './contracts/places.js';

@@ -18,46 +18,25 @@ export function ProfilePage() {
   const online = useOnline();
 
   const [displayName, setDisplayName] = useState('');
-  const [areaLabel, setAreaLabel] = useState('');
-  const [lat, setLat] = useState('');
-  const [lng, setLng] = useState('');
   const [radius, setRadius] = useState(String(DEFAULT_RADIUS_KM));
   const [language, setLanguage] = useState<UiLanguage>('en');
-  const [geoState, setGeoState] = useState<'idle' | 'locating' | 'unavailable'>('idle');
   const [locationOpen, setLocationOpen] = useState(false);
 
   const profile = me.data?.profile;
   useEffect(() => {
     if (!profile) return;
     setDisplayName(profile.displayName ?? '');
-    setAreaLabel(profile.areaLabel ?? '');
-    setLat(profile.homeLocation ? String(profile.homeLocation.lat) : '');
-    setLng(profile.homeLocation ? String(profile.homeLocation.lng) : '');
     setRadius(String(profile.searchRadiusKm));
     setLanguage(profile.preferredLanguage);
   }, [profile]);
 
-  function useDeviceLocation() {
-    if (!('geolocation' in navigator)) return setGeoState('unavailable');
-    setGeoState('locating');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLat(pos.coords.latitude.toFixed(5));
-        setLng(pos.coords.longitude.toFixed(5));
-        setGeoState('idle');
-      },
-      () => setGeoState('unavailable'),
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
-    );
-  }
-
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const hasLocation = lat.trim() !== '' && lng.trim() !== '';
     save.mutate({
       displayName: displayName.trim(),
-      areaLabel: areaLabel.trim() || null,
-      homeLocation: hasLocation ? { lat: Number(lat), lng: Number(lng) } : null,
+      // Location changes only through the confirmed location form; keep what is saved.
+      areaLabel: profile?.areaLabel ?? null,
+      homeLocation: profile?.homeLocation ?? null,
       searchRadiusKm: Number(radius),
       preferredLanguage: language,
     });
@@ -88,28 +67,6 @@ export function ProfilePage() {
         <form className="space-y-4" onSubmit={onSubmit}>
           <h2 className="pt-4 text-sm font-semibold text-stone-600">Profile details</h2>
           <TextField label={t('auth.displayName')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} minLength={2} maxLength={60} required />
-          <TextField label="Neighbourhood / city / region" hint="Shown on your listings, for example: Tebet, South Jakarta. Keep your exact address private." value={areaLabel} onChange={(e) => setAreaLabel(e.target.value)} maxLength={120} />
-
-          <fieldset className="space-y-2 border-t border-stone-200 pt-4">
-            <legend className="text-sm font-medium">{t('profile.location')}</legend>
-            <p className="text-xs text-stone-500">{t('profile.locationHint')}</p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="secondary" onClick={useDeviceLocation} disabled={geoState === 'locating'}>
-                {geoState === 'locating' ? t('profile.locating') : t('profile.useDevice')}
-              </Button>
-              {(lat || lng) && (
-                <Button type="button" variant="ghost" onClick={() => { setLat(''); setLng(''); }}>
-                  {t('profile.clearLocation')}
-                </Button>
-              )}
-            </div>
-            {geoState === 'unavailable' && <Alert tone="warning">{t('profile.geoUnavailable')}</Alert>}
-            {(lat && lng) && <p className="text-sm text-brand-800">Location set. Save to use it for nearby discovery.</p>}
-            <details><summary className="cursor-pointer py-3 text-sm font-semibold text-brand-800">Enter coordinates manually</summary><div className="grid grid-cols-2 gap-2">
-              <TextField label={t('profile.lat')} inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} pattern="-?\d{1,2}(\.\d+)?" required={lng !== ''} />
-              <TextField label={t('profile.lng')} inputMode="decimal" value={lng} onChange={(e) => setLng(e.target.value)} pattern="-?\d{1,3}(\.\d+)?" required={lat !== ''} />
-            </div></details>
-          </fieldset>
 
           <fieldset className="space-y-2 border-t border-stone-200 pt-4">
             <legend className="text-sm font-medium">{t('profile.radius')}</legend>

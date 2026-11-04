@@ -64,6 +64,8 @@ export const ApiErrorCodeSchema = z.enum([
   'AI_INVALID_OUTPUT',
   'AI_INPUT_REJECTED',
   'AI_UPSTREAM_ERROR',
+  'GEOCODING_NOT_CONFIGURED',
+  'GEOCODING_UNAVAILABLE',
   'INTERNAL',
 ]);
 export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;

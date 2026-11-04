@@ -251,6 +251,8 @@ export const en = {
   'error.AI_INVALID_OUTPUT': 'The AI returned an unusable answer. Please try again or rephrase.',
   'error.AI_INPUT_REJECTED': 'The AI could not process this text. Try rephrasing.',
   'error.AI_UPSTREAM_ERROR': 'The AI service is temporarily unavailable.',
+  'error.GEOCODING_NOT_CONFIGURED': 'Place search is not configured on this server. Use device location instead.',
+  'error.GEOCODING_UNAVAILABLE': 'Place search is temporarily unavailable. Try again, or use device location.',
   'error.RATE_LIMITED': 'Too many requests. Please wait a minute.',
   'error.VALIDATION_FAILED': 'Please check the form and try again.',
   'error.OFFLINE': 'You are offline. Connect and try again.',

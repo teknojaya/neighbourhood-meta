@@ -27,6 +27,8 @@ import { needsRouter } from './modules/needs/needs.routes.js';
 import type { NeedsService } from './modules/needs/needs.service.js';
 import { notificationsRouter } from './modules/notifications/notifications.routes.js';
 import { profilesRouter } from './modules/profiles/profiles.routes.js';
+import type { PlaceProvider } from './modules/places/geoapify.client.js';
+import { placesRouter } from './modules/places/places.routes.js';
 import type { ProfilesService } from './modules/profiles/profiles.service.js';
 import { requestsRouter } from './modules/requests/requests.routes.js';
 import type { RequestsService } from './modules/requests/requests.service.js';
@@ -58,6 +60,7 @@ export interface AppDeps {
   ask?: AskService;
   listings?: ListingsService;
   photoStorage?: VerifiableObjectStorage;
+  places?: PlaceProvider | null;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -142,6 +145,7 @@ export function createApp(deps: AppDeps): Express {
   api.use(requireAuth(deps.tokenVerifier, deps.users));
 
   api.use(profilesRouter(deps.profiles));
+  api.use(placesRouter(deps.places ?? null));
   api.use(aiRouter(deps.ai, { matching: deps.matching, photo: deps.ask ? (userId, sessionId, attachmentId) => deps.ask!.image(userId, sessionId, attachmentId) : undefined }));
   if (deps.ask) api.use(askRouter(deps.ask));
   api.use(listingsRouter(deps.listings));

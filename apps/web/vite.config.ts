@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
 
   // Guard: server secrets must never be bundled into the browser build.
-  const leaked = Object.keys(env).filter((k) => /GEMINI|META_API|SECRET|SERVICE_ACCOUNT|PRIVATE_KEY/i.test(k));
+  const leaked = Object.keys(env).filter((k) => /GEMINI|META_API|GEOAPIFY|SECRET|SERVICE_ACCOUNT|PRIVATE_KEY/i.test(k));
   if (leaked.length > 0) {
     throw new Error(`Refusing to build: secret-like variables exposed to the client: ${leaked.join(', ')}`);
   }
