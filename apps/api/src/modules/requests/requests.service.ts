@@ -60,7 +60,7 @@ export class PrismaRequestsService implements RequestsService {
         : undefined;
       if (pickupBy && pickupBy.getTime() <= Date.now()) throw new HttpError('VALIDATION_FAILED', 'Pickup deadline must be in the future');
       if (body.to !== 'approved' && body.pickupBy) throw new HttpError('VALIDATION_FAILED', 'Pickup deadline is only set during approval');
-      const req = await this.store.transitionInTransaction(tx, requestId, userId, body.to, { pickupBy });
+      const req = await this.store.transitionInTransaction(tx, requestId, userId, body.to, { pickupBy, pickupByExplicit: body.pickupBy !== undefined });
       const conversation = await this.conversations.ensureForDonationRequest(tx, requestId);
       if (body.note) {
         await this.conversations.appendStatusNoteInTransaction(tx, conversation.id, userId, body.note);

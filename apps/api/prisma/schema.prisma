@@ -333,6 +333,15 @@ model Listing {
   maxLoanDays      Int?             @map("max_loan_days")
   lendingNotes     String?          @map("lending_notes") @db.VarChar(500)
   bestBefore       DateTime?        @map("best_before") @db.Date
+  /// Surplus-food rescue. CHECKs in migration: requires collectBy and donate mode.
+  foodRescue       Boolean          @default(false) @map("food_rescue")
+  collectBy        DateTime?        @map("collect_by") @db.Timestamptz(3)
+  /// Null means unknown; never inferred from photos.
+  foodPreparedAt   DateTime?        @map("food_prepared_at") @db.Timestamptz(3)
+  foodStorage      String?          @map("food_storage") @db.VarChar(300)
+  foodAllergens    String?          @map("food_allergens") @db.VarChar(300)
+  /// Set once by maintenance after outstanding requests were expired and the owner notified.
+  foodExpiredAt    DateTime?        @map("food_expired_at") @db.Timestamptz(3)
   createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
   owner            User             @relation(fields: [ownerId], references: [id])

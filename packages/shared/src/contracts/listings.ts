@@ -31,6 +31,39 @@ export const ApplianceDetailsSchema = z.object({
 });
 export type ApplianceDetails = z.infer<typeof ApplianceDetailsSchema>;
 
+/**
+ * Surplus-food rescue details. `null` means the giver did not state it:
+ * unknown stays unknown and is never inferred from a photo or by AI.
+ * Time-relative rules ("collect-by must be in the future") are enforced by the
+ * server when an action happens, never here, so stored review cards still parse.
+ */
+export const FOOD_RESCUE_LIMITS = { maxHoursAhead: 14 * 24, textMax: 300 } as const;
+export const FoodRescueInputSchema = z.strictObject({
+  collectBy: IsoDateTimeSchema,
+  preparedAt: IsoDateTimeSchema.nullable().default(null),
+  storage: z.string().trim().min(1).max(FOOD_RESCUE_LIMITS.textMax).nullable().default(null),
+  allergens: z.string().trim().min(1).max(FOOD_RESCUE_LIMITS.textMax).nullable().default(null),
+}).refine((f) => f.preparedAt === null || Date.parse(f.preparedAt) <= Date.parse(f.collectBy), {
+  message: 'Preparation time must be before the collect-by time', path: ['preparedAt'],
+});
+export type FoodRescueInput = z.infer<typeof FoodRescueInputSchema>;
+export const FoodRescuePublicSchema = z.object({
+  collectBy: IsoDateTimeSchema,
+  preparedAt: IsoDateTimeSchema.nullable(),
+  storage: z.string().nullable(),
+  allergens: z.string().nullable(),
+  /** Derived from collectBy at read time. */
+  expired: z.boolean(),
+});
+export type FoodRescuePublic = z.infer<typeof FoodRescuePublicSchema>;
+/** Partial edit; collectBy may move but never below an approved pickup deadline. */
+export const FoodRescueEditSchema = z.strictObject({
+  collectBy: IsoDateTimeSchema.optional(),
+  preparedAt: IsoDateTimeSchema.nullable().optional(),
+  storage: z.string().trim().min(1).max(FOOD_RESCUE_LIMITS.textMax).nullable().optional(),
+  allergens: z.string().trim().min(1).max(FOOD_RESCUE_LIMITS.textMax).nullable().optional(),
+});
+
 export const ListingPhotoSchema = z.object({
   id: z.uuid().optional(),
   /** Cloud Storage object path under listings/{listingId}/. */
@@ -67,6 +100,8 @@ export const ListingPublicSchema = z.object({
   lending: LendingTermsSchema.nullable(),
   /** Grocery best-before date if relevant. */
   bestBefore: z.iso.date().nullable(),
+  /** Present only for surplus-food rescue offers. Optional for older cached clients. */
+  food: FoodRescuePublicSchema.nullable().default(null),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
@@ -101,6 +136,15 @@ export const CreateListingBodySchema = z
     appliance: ApplianceDetailsSchema.nullable().default(null),
     lending: LendingTermsSchema.nullable().default(null),
     bestBefore: z.iso.date().nullable().default(null),
+    food: FoodRescueInputSchema.nullable().default(null),
+  })
+  .refine((b) => b.food === null || (b.mode === 'donate' && b.category === 'groceries'), {
+    message: 'Food rescue is for free food donations in the groceries category',
+    path: ['food'],
+  })
+  .refine((b) => b.food === null || (b.collection.method === 'owner_location' && !b.pointInventoryItemId), {
+    message: 'Food rescue offers are collected from the giver',
+    path: ['food'],
   })
   .refine((b) => b.mode !== 'lend' || b.quantity === 1, {
     message: 'Lending is single-unit: quantity must be 1',
@@ -130,6 +174,8 @@ export const UpdateListingBodySchema = z.strictObject({
   appliance: ApplianceDetailsSchema.nullable().optional(),
   lending: LendingTermsSchema.nullable().optional(),
   bestBefore: z.iso.date().nullable().optional(),
+  /** Only for listings created as food rescue offers. */
+  food: FoodRescueEditSchema.optional(),
 });
 export type UpdateListingBody = z.infer<typeof UpdateListingBodySchema>;
 

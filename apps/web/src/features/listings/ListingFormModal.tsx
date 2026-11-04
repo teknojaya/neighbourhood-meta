@@ -18,6 +18,7 @@ import { ApiError } from '../../lib/api';
 import { createRetryKey } from '../activity/retry-key';
 import { createListing, transitionListing, updateListing, uploadListingPhoto } from './listingApi';
 import { ProfileLocationDialog } from '../profile/ProfileLocationDialog';
+import { countdownText, fromLocalInput, toLocalInput } from './FoodRescue';
 
 interface ListingFormModalProps {
   inline?: boolean;
@@ -106,6 +107,14 @@ export function ListingFormModal({
   const [installation,setInstallation] = useState<boolean | null>(restored?.installation ?? existingListing?.appliance?.access.requiresInstallation ?? null);
   const [helpers,setHelpers] = useState(restored?.helpers ?? String(existingListing?.appliance?.access.suggestedHelpers ?? ''));
   const [accessNotes,setAccessNotes] = useState(restored?.accessNotes ?? existingListing?.appliance?.access.notes ?? '');
+  // Surplus-food rescue. Empty text means unknown and is sent as null.
+  const [foodRescue, setFoodRescue] = useState<boolean>(restored?.foodRescue ?? (existingListing ? existingListing.food !== null : initialDraft?.foodRescue === true));
+  const initialCollectBy = useRef(toLocalInput(existingListing?.food?.collectBy ?? initialDraft?.collectBy));
+  const [collectBy, setCollectBy] = useState(restored?.collectBy ?? initialCollectBy.current);
+  const [foodPreparedAt, setFoodPreparedAt] = useState(restored?.foodPreparedAt ?? toLocalInput(existingListing?.food?.preparedAt ?? initialDraft?.foodPreparedAt));
+  const [foodStorage, setFoodStorage] = useState(restored?.foodStorage ?? existingListing?.food?.storage ?? initialDraft?.foodStorage ?? '');
+  const [foodAllergens, setFoodAllergens] = useState(restored?.foodAllergens ?? existingListing?.food?.allergens ?? initialDraft?.foodAllergens ?? '');
+  const canChooseFood = !existingListing && !pointInventory && mode === 'donate';
   // Photo selection
   const [photoFile, setPhotoFile] = useState<File | null>(restored?.photoFile ?? null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -116,8 +125,8 @@ export function ListingFormModal({
 
   useEffect(() => { const url = photoFile ? URL.createObjectURL(photoFile) : null; setPhotoPreview(url); return () => { if (url) URL.revokeObjectURL(url); }; }, [photoFile]);
   useEffect(() => {
-    if (inline && user && !cleared.current) saveShareDraft(user.uid, { mode, category, title, description, condition, quantity, pickupInstructions, bestBefore, applianceModel, powerRequirement, maxLoanDays, applianceStatus, applianceBrand, applianceWeight, dimensions, floor, elevator, dismantling, installation, helpers, accessNotes, photoFile, retryKeys: keys.current, photoKey: photoKey.current });
-  }, [inline, user, mode, category, title, description, condition, quantity, pickupInstructions, bestBefore, applianceModel, powerRequirement, maxLoanDays, applianceStatus, applianceBrand, applianceWeight, dimensions, floor, elevator, dismantling, installation, helpers, accessNotes, photoFile]);
+    if (inline && user && !cleared.current) saveShareDraft(user.uid, { foodRescue, collectBy, foodPreparedAt, foodStorage, foodAllergens, mode, category, title, description, condition, quantity, pickupInstructions, bestBefore, applianceModel, powerRequirement, maxLoanDays, applianceStatus, applianceBrand, applianceWeight, dimensions, floor, elevator, dismantling, installation, helpers, accessNotes, photoFile, retryKeys: keys.current, photoKey: photoKey.current });
+  }, [foodRescue, collectBy, foodPreparedAt, foodStorage, foodAllergens, inline, user, mode, category, title, description, condition, quantity, pickupInstructions, bestBefore, applianceModel, powerRequirement, maxLoanDays, applianceStatus, applianceBrand, applianceWeight, dimensions, floor, elevator, dismantling, installation, helpers, accessNotes, photoFile]);
   function clearDraft() { cleared.current = true; if (inline && user) removeShareDraft(user.uid); }
 
   const handlePhotoSelect = (e: ChangeEvent<HTMLInputElement>) => {
@@ -148,6 +157,16 @@ export function ListingFormModal({
       setErrorMessage('Title must be at least 3 characters long.');
       return;
     }
+
+    const foodActive = foodRescue && mode === 'donate';
+    if (foodActive) {
+      const deadline = fromLocalInput(collectBy);
+      if (!deadline) { setErrorMessage('Choose when the food must be collected by.'); return; }
+      if (collectBy !== initialCollectBy.current && Date.parse(deadline) <= Date.now()) { setErrorMessage('The collect-by time must be in the future.'); return; }
+      const prepared = fromLocalInput(foodPreparedAt);
+      if (prepared && Date.parse(prepared) > Date.parse(deadline)) { setErrorMessage('Preparation time must be before the collect-by time.'); return; }
+    }
+    const foodBody = { preparedAt: fromLocalInput(foodPreparedAt), storage: foodStorage.trim() || null, allergens: foodAllergens.trim() || null };
 
     try {
       setIsSubmitting(true);
@@ -188,6 +207,8 @@ export function ListingFormModal({
             bestBefore: bestBefore || null,
             lending: mode === 'lend' ? { maxLoanDays, depositRequired: false, notes: null } : null,
             appliance: appliancePayload,
+            // Unchanged deadline is omitted: re-sending a minute-rounded copy could undercut an approved pickup.
+            ...(existingListing.food ? { food: { ...foodBody, ...(collectBy !== initialCollectBy.current ? { collectBy: fromLocalInput(collectBy)! } : {}) } } : {}),
           });
 
           // Upload photo if a new file was chosen
@@ -211,6 +232,7 @@ export function ListingFormModal({
             bestBefore: bestBefore || null,
             lending: mode === 'lend' ? { maxLoanDays, depositRequired: false, notes: null } : null,
             appliance: appliancePayload,
+            food: foodActive ? { collectBy: fromLocalInput(collectBy)!, ...foodBody } : null,
           };
 
         if (onPrepare) {
@@ -287,6 +309,7 @@ export function ListingFormModal({
                 onClick={() => {
                   setMode('lend');
                   setQuantity(1);
+                  setFoodRescue(false);
                 }}
                 className={`rounded-lg py-2 text-sm font-semibold transition ${
                   mode === 'lend' ? 'bg-white text-brand-800 ' : 'text-stone-600'
@@ -296,6 +319,22 @@ export function ListingFormModal({
               </button>
             </div>
           </div>
+
+          {canChooseFood && (
+            <label className="flex min-h-11 items-start gap-3 rounded-xl border border-orange-200 bg-orange-50/60 p-3 text-sm">
+              <input type="checkbox" className="mt-1 h-5 w-5" checked={foodRescue} onChange={e => { setFoodRescue(e.target.checked); if (e.target.checked) setCategory('groceries'); }} />
+              <span><span className="font-semibold">Surplus food rescue</span><span className="block text-stone-600">Leftover or surplus food that must be collected by a deadline. Requests close automatically at that time.</span></span>
+            </label>
+          )}
+          {foodRescue && mode === 'donate' && (existingListing ? existingListing.food !== null : canChooseFood) && (
+            <div className="space-y-3 rounded-xl border border-orange-200 p-3.5">
+              <p className="text-sm font-bold text-stone-700">Food details</p>
+              <TextField label="Collect by (your local time) *" type="datetime-local" value={collectBy} min={toLocalInput(new Date().toISOString())} onChange={e => setCollectBy(e.target.value)} required hint={collectBy ? countdownText(fromLocalInput(collectBy)!) : 'Neighbours must collect before this time.'} />
+              <TextField label="Prepared at, if known" type="datetime-local" value={foodPreparedAt} onChange={e => setFoodPreparedAt(e.target.value)} />
+              <TextField label="Storage, if known" placeholder="e.g. Refrigerated, room temperature" maxLength={300} value={foodStorage} onChange={e => setFoodStorage(e.target.value)} />
+              <TextField label="Allergens, if known" placeholder="e.g. Contains peanuts, dairy" maxLength={300} value={foodAllergens} onChange={e => setFoodAllergens(e.target.value)} hint="Leave empty if you don’t know. It will show as unknown — never guess." />
+            </div>
+          )}
 
           {/* Title */}
           <TextField
@@ -312,6 +351,7 @@ export function ListingFormModal({
               <label className="block text-sm font-medium text-stone-800" htmlFor="listing-field-0">Category *</label>
 <select
 id="listing-field-0"                 value={category}
+                disabled={foodRescue && mode === 'donate'}
                 onChange={(e) => setCategory(e.target.value as ItemCategory)}
                 className="mt-1 block min-h-11 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm  focus:border-brand-700 focus:outline-none"
               >

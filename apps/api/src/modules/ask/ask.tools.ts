@@ -5,7 +5,7 @@ import {
   ASK_LIMITS, AskActionPayloadSchema, AskInputSchema, AskListingDraftDataSchema, AskListingDraftSchema, AskPartSchema,
   CreateDonationRequestBodySchema, DonationRequestTransitionBodySchema, NeedsExtractionSchema,
   type AskActionPayload, type AskPart, type ListingPublic,
-  ItemCategorySchema, ListingModeSchema, RadiusKmSchema, MAX_RADIUS_KM, MarketplaceActionSchema, modelSafe,
+  FOOD_RESCUE_LIMITS, ItemCategorySchema, ListingModeSchema, RadiusKmSchema, MAX_RADIUS_KM, MarketplaceActionSchema, modelSafe,
 } from '@neighbourhood/shared';
 import type { Db } from '../../lib/db.js';
 import { HttpError } from '../../lib/http.js';
@@ -17,7 +17,7 @@ import { actionDto } from './ask.dto.js';
 import { ModelMarketplaceActionSchema, authorizeProposal, marketplaceSummary, type MarketplaceServices } from './ask.marketplace.js';
 import { PRODUCT_GUIDE } from './product-knowledge.js';
 import { normalizeListingSearch } from '../listings/search-terms.js';
-import { DESCRIPTION_QUESTION, NO_DESCRIPTION_OPTION, descriptionDeclined, quantityWasStated, wantsToPublish } from './ask.presentation.js';
+import { DESCRIPTION_QUESTION, FOOD_DEADLINE_QUESTION, NO_DESCRIPTION_OPTION, descriptionDeclined, guardFoodFacts, quantityWasStated, wantsToPublish } from './ask.presentation.js';
 
 export interface AskServices {
   marketplace?: MarketplaceServices;
@@ -108,6 +108,7 @@ export class AskTools {
       if (!z.uuid().safeParse(body.listingId).success) throw new HttpError('VALIDATION_FAILED', 'Invalid listing');
       const listing = await services.listings!.get(ctx.userId, body.listingId);
       if (listing.status !== 'active' || listing.mode !== 'donate' || listing.ownerId === ctx.userId) throw new HttpError('NOT_FOUND', 'Listing unavailable');
+      if (listing.food?.expired) throw new HttpError('CONFLICT', 'The collect-by time for this food has passed');
       const existing = await db.donationRequest.findFirst({ where: { listingId: body.listingId, requesterId: ctx.userId, status: { in: ['pending', 'approved'] } } });
       if (existing) {
         const item = await services.requests.get(ctx.userId, existing.id);
@@ -134,16 +135,21 @@ export class AskTools {
       if (conversation.closed) throw new HttpError('CONFLICT', 'This conversation is closed');
       return this.propose(ctx, { kind: 'send_message', ...args }, conversation.listingTitle ?? 'Neighbour conversation');
     });
-    this.add('draft_listing', 'Create or update the current private listing draft after clarifying unknown quantity and condition with the user. Do not infer those from photos or invent defaults. If you need an answer first, use ask_questions instead. Supply only changed fields. Null means unknown. If the user has nothing to add to the description, set description to an empty string. When the user asks to post or publish, call this with any remaining facts; a complete draft then shows the publication review card. Photos from this turn attach automatically; earlier draft photos are preserved. includePhotos=false removes draft photos. It cannot publish.', AskListingDraftDataSchema.omit({ attachmentIds: true }).partial().extend({ includePhotos: z.boolean().optional() }), async ({ includePhotos, ...args }, ctx) => {
+    this.add('draft_listing', 'Create or update the current private listing draft after clarifying unknown quantity and condition with the user. Do not infer those from photos or invent defaults. If you need an answer first, use ask_questions instead. Supply only changed fields. Null means unknown. If the user has nothing to add to the description, set description to an empty string. When the user asks to post or publish, call this with any remaining facts; a complete draft then shows the publication review card. Photos from this turn attach automatically; earlier draft photos are preserved. includePhotos=false removes draft photos. It cannot publish. Surplus food (cooked meals, bread, produce to rescue before it spoils): set foodRescue true; it is a free groceries donation that needs a collect-by deadline. Prefer collectWithinHours for a relative deadline; use collectBy only with an explicit time-zone offset the user confirmed. foodPreparedAt, foodStorage and foodAllergens only when the user stated them; unknown stays null, never inferred from a photo.', AskListingDraftDataSchema.omit({ attachmentIds: true }).partial().extend({ includePhotos: z.boolean().optional(), collectWithinHours: z.number().min(0.25).max(FOOD_RESCUE_LIMITS.maxHoursAhead).optional() }), async ({ includePhotos, collectWithinHours, ...args }, ctx) => {
       const previous = await db.askDraft.findUnique({ where: { sessionId_kind: { sessionId: ctx.sessionId, kind: 'listing' } } });
       const latest = await db.askMessage.findFirst({ where: { sessionId: ctx.sessionId, role: 'user' }, orderBy: { sequence: 'desc' } });
       const earlierPhoto = (!previous || !Object.hasOwn(previous.data as object, 'attachmentIds')) && !latest?.attachmentIds.length ? await db.askMessage.findFirst({ where: { sessionId: ctx.sessionId, role: 'user', attachmentIds: { isEmpty: false }, ...(previous ? { createdAt: { lte: previous.updatedAt } } : {}) }, orderBy: { sequence: 'desc' } }) : null;
       const history = await db.askMessage.findMany({ where: { sessionId: ctx.sessionId }, orderBy: { sequence: 'asc' }, select: { role: true, text: true } });
       if (args.quantity != null && !quantityWasStated(history, args.quantity)) args.quantity = null;
+      if (collectWithinHours !== undefined) args.collectBy = new Date(Date.now() + collectWithinHours * 3_600_000).toISOString();
+      guardFoodFacts(args, history);
       if (args.description?.trim().replace(/[.!]+$/, '').toLowerCase() === NO_DESCRIPTION_OPTION.toLowerCase()) args.description = '';
       const data = AskListingDraftDataSchema.parse({ title: null, category: null, mode: null, condition: null, quantity: null, description: null, ...(previous?.data as object ?? {}), ...args, ...(includePhotos === false ? { attachmentIds: [] } : latest?.attachmentIds.length ? { attachmentIds: latest.attachmentIds } : earlierPhoto ? { attachmentIds: earlierPhoto.attachmentIds } : {}) });
       // The server asked this optional question, so it records an explicit "nothing to add".
       if (data.description === null && descriptionDeclined(history)) data.description = '';
+      if (data.foodRescue) { data.mode = 'donate'; data.category = 'groceries'; data.maxLoanDays = null; }
+      // A deadline that has already passed is not a usable answer.
+      if (data.collectBy && Date.parse(data.collectBy) <= Date.now()) data.collectBy = null;
       const row = await db.askDraft.upsert({ where: { sessionId_kind: { sessionId: ctx.sessionId, kind: 'listing' } }, create: { sessionId: ctx.sessionId, kind: 'listing', data }, update: { data } });
       const attachments = await db.askAttachment.findMany({ where: { sessionId: ctx.sessionId, id: { in: data.attachmentIds } } });
       const draft = AskListingDraftSchema.parse({ ...row, attachments, updatedAt: row.updatedAt.toISOString() });
@@ -154,6 +160,7 @@ export class AskTools {
         : !data.mode ? { kind: 'questions', questions: [{ question: 'Would you like to give this away or lend it out?', options: ['Give it away', 'Lend it out'] }] }
         : !data.condition ? { kind: 'questions', questions: [{ question: 'What condition is it in?', options: ['New', 'Like new', 'Good', 'Fair', 'Needs repair'] }] }
         : data.quantity === null ? { kind: 'questions', questions: [{ question: 'How many items are you sharing?', options: ['1', '2', '3'] }] }
+        : data.foodRescue && !data.collectBy ? { kind: 'questions', questions: [{ question: FOOD_DEADLINE_QUESTION, options: ['Within 2 hours', 'Within 4 hours', 'Within 8 hours'] }] }
         : data.mode === 'lend' && !data.maxLoanDays ? { kind: 'questions', questions: [{ question: 'For how many days can a neighbour borrow it?', options: ['3 days', '7 days', '14 days'] }] }
         : !data.title ? { kind: 'questions', questions: [{ question: 'What would you like to call this item?', options: [] }] }
         : !data.category ? { kind: 'questions', questions: [{ question: 'Which category fits this item best?', options: ['Groceries', 'Clothing', 'Books', 'Household', 'Appliances', 'Mobility aids'] }] }
@@ -181,10 +188,11 @@ export class AskTools {
       if (draft.quantity === null || !quantityWasStated(history, draft.quantity)) return { result: { waitingForUser: true, missingFact: 'quantity', committed: false }, parts: [{ kind: 'questions', questions: [{ question: 'How many items are you sharing?', options: ['1', '2', '3'] }] }] };
       if (!Object.hasOwn(row.data as object, 'attachmentIds')) draft.attachmentIds = (await db.askMessage.findFirst({ where: { sessionId: ctx.sessionId, role: 'user', attachmentIds: { isEmpty: false }, createdAt: { lte: row.updatedAt } }, orderBy: { sequence: 'desc' } }))?.attachmentIds.slice(0, 2) ?? [];
       if (!draft.attachmentIds.length) return { result: { waitingForUser: true, requiredInput: 'photo', committed: false }, parts: [{ kind: 'input_request', input: 'photo', prompt: 'Please add a photo of the item before publishing.' }] };
+      if (draft.foodRescue && (!draft.collectBy || Date.parse(draft.collectBy) <= Date.now())) return { result: { waitingForUser: true, missingFact: 'collectBy', committed: false }, parts: [{ kind: 'questions', questions: [{ question: FOOD_DEADLINE_QUESTION, options: ['Within 2 hours', 'Within 4 hours', 'Within 8 hours'] }] }] };
       if (!draft.title || !draft.category || !draft.mode || !draft.condition || !draft.quantity || draft.description === null || (draft.mode === 'lend' && !draft.maxLoanDays)) throw new HttpError('VALIDATION_FAILED', 'Ask for missing listing facts before preparing publication');
       const user = await db.user.findUniqueOrThrow({ where: { id: ctx.userId } });
       if (user.homeLat === null || user.homeLng === null || !user.areaLabel?.trim()) return { result: { waitingForUser: true, requiredInput: 'profile_location', coordinatesSet: user.homeLat !== null && user.homeLng !== null, publicAreaSet: Boolean(user.areaLabel?.trim()), note: 'Use the real location form. A missing public area is not missing coordinates.' }, parts: [{ kind: 'input_request', input: 'profile_location', prompt: user.homeLat !== null && user.homeLng !== null ? 'Your location is set. Add a public neighbourhood or city label to continue.' : 'Choose your pickup location and public area to continue.' }] };
-      const action = MarketplaceActionSchema.parse({ operation: 'listing_publish', attachmentIds: draft.attachmentIds, body: { title: draft.title, category: draft.category, mode: draft.mode, condition: draft.condition, quantity: draft.quantity, description: draft.description, areaLabel: user.areaLabel, exactLocation: { lat: user.homeLat, lng: user.homeLng }, pickupInstructions: 'Message in the app to agree on a pickup meeting point.', collection: { method: 'owner_location', communityPointId: null }, lending: draft.mode === 'lend' ? { maxLoanDays: draft.maxLoanDays, depositRequired: false, notes: null } : null, appliance: draft.category === 'appliances' ? { workingStatus: 'unknown', brand: null, model: null, approxWeightKg: null, dimensionsCm: null, powerRequirement: null, access: { floorLevel: null, elevatorAvailable: null, requiresDismantling: null, requiresInstallation: null, suggestedHelpers: null, notes: null } } : null } });
+      const action = MarketplaceActionSchema.parse({ operation: 'listing_publish', attachmentIds: draft.attachmentIds, body: { title: draft.title, category: draft.category, mode: draft.mode, condition: draft.condition, quantity: draft.quantity, description: draft.description, areaLabel: user.areaLabel, exactLocation: { lat: user.homeLat, lng: user.homeLng }, pickupInstructions: 'Message in the app to agree on a pickup meeting point.', collection: { method: 'owner_location', communityPointId: null }, food: draft.foodRescue ? { collectBy: draft.collectBy!, preparedAt: draft.foodPreparedAt, storage: draft.foodStorage || null, allergens: draft.foodAllergens || null } : null, lending: draft.mode === 'lend' ? { maxLoanDays: draft.maxLoanDays, depositRequired: false, notes: null } : null, appliance: draft.category === 'appliances' ? { workingStatus: 'unknown', brand: null, model: null, approxWeightKg: null, dimensionsCm: null, powerRequirement: null, access: { floorLevel: null, elevatorAvailable: null, requiresDismantling: null, requiresInstallation: null, suggestedHelpers: null, notes: null } } : null } });
       return this.propose(ctx, { kind: 'marketplace', action }, `Publish ${draft.title} × ${draft.quantity}`.slice(0, 300));
     });
   }

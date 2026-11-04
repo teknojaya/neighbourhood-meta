@@ -53,6 +53,12 @@ export const AskListingDraftDataSchema = z.strictObject({
   quantity: z.number().int().min(1).max(1000).nullable(), description: z.string().max(2000).nullable(),
   maxLoanDays: z.number().int().min(1).max(90).nullable().default(null),
   attachmentIds: z.array(z.uuid()).max(2).default([]),
+  /** Surplus-food rescue. Null = not stated; food details are never inferred from photos. */
+  foodRescue: z.boolean().nullable().default(null),
+  collectBy: IsoDateTimeSchema.nullable().default(null),
+  foodPreparedAt: IsoDateTimeSchema.nullable().default(null),
+  foodStorage: z.string().trim().max(300).nullable().default(null),
+  foodAllergens: z.string().trim().max(300).nullable().default(null),
 });
 export const AskListingDraftSchema = z.object({ id: IdSchema, data: AskListingDraftDataSchema, attachments: z.array(AskAttachmentSchema).max(2).default([]), updatedAt: IsoDateTimeSchema });
 export type AskListingDraft = z.infer<typeof AskListingDraftSchema>;

@@ -58,6 +58,7 @@ applying migrations. Five account buttons are available at `/login`.
 | `npm run smoke:ask-inputs` | Real Profile save, coordinate validation/cancel, safe chat continuation, legacy setup controls and responsive location form; AI continuation stubbed |
 | `npm run smoke:conversations-saved` | Two browsers: private message photos, product thumbnails and private bookmark persistence/removal |
 | `npm run smoke:search -w @neighbourhood/api` | Real Meta model radius follow-ups, farther matches and honest empty results |
+| `npm run smoke:food-rescue` | Food-rescue form, collect-by countdown, deadline rejection, expiry maintenance and real Meta drafting via review/Confirm (`SMOKE_SKIP_AI=true` skips the model) |
 | `npm run smoke:unread` | Authorized unread counts and header read-state updates; disposable local fixtures |
 | `npm run smoke:ask -w @neighbourhood/api` | Real tools, private images, confirmation and history |
 | `npm run maintenance -w @neighbourhood/api` | Request expiry, push outbox and orphan photo cleanup |
@@ -72,6 +73,12 @@ and `SMOKE_SCREENSHOT_DIR` for mobile captures. They remove only their fixtures.
 - Donation and lending listings, bucket photos, private pickup, radius/keyword
   search, saved needs and grounded matching.
 - Requests, approval, reserved stock, collection, expiry, private chat and inbox.
+- Surplus-food rescue: optional mode on grocery donations with a required future
+  collect-by deadline and optional preparation time, storage and allergens
+  (unknown stays unknown). Expired offers leave search, matching and Ask search;
+  requests, approvals and collection are refused after the deadline, pickup
+  deadlines never exceed it, and maintenance expires outstanding requests once,
+  releasing reservations and notifying requesters and the giver.
 - Single-unit loans with availability, overlap protection, checkout and return.
 - Community membership, consented points/QR, reviewed deposits, audited stock
   and inventory-backed donation listings.

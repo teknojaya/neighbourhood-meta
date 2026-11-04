@@ -7,6 +7,7 @@ export interface ShareDraft {
   applianceStatus: 'working' | 'partially_working' | 'not_working' | 'unknown'; applianceBrand: string; applianceWeight: string;
   dimensions: { width: string; height: string; depth: string }; floor: string; elevator: boolean | null; dismantling: boolean | null;
   installation: boolean | null; helpers: string; accessNotes: string; photoFile: File | null;
+  foodRescue?: boolean; collectBy?: string; foodPreparedAt?: string; foodStorage?: string; foodAllergens?: string;
   retryKeys: ReturnType<typeof createRetryKey>; photoKey: string;
 }
 // Browser memory only, scoped to the authenticated identity; no private form or File is written to storage.

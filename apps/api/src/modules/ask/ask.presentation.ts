@@ -71,3 +71,21 @@ export function searchReply(parts: AskPart[]) {
   if (scope.fartherItems.length) return `${none} Matching items were found farther away, outside ${scope.radiusKm} km. Their distances are shown below.`;
   return `${none} You can save this need or try a different item.`;
 }
+
+export const FOOD_DEADLINE_QUESTION = 'By when does the food need to be collected?';
+const userText = (messages: Array<{role:string;text:string}>) => messages.filter(message => message.role === 'user').map(message => message.text.toLowerCase()).join('\n');
+/** True when some meaningful word of the value appears in what the resident typed. */
+function mentioned(text: string, value: string) {
+  return value.toLowerCase().split(/[^\p{L}\p{N}]+/u).some(word => word.length >= 3 && text.includes(word));
+}
+/**
+ * Food safety facts must come from the resident, never from a photo or a guess.
+ * Values the model supplies without a matching statement in the conversation are dropped to unknown.
+ */
+export function guardFoodFacts(args: { collectBy?: string | null; foodPreparedAt?: string | null; foodStorage?: string | null; foodAllergens?: string | null }, messages: Array<{role:string;text:string}>) {
+  const text = userText(messages);
+  if (args.foodAllergens && !mentioned(text, args.foodAllergens)) args.foodAllergens = null;
+  if (args.foodStorage && !mentioned(text, args.foodStorage)) args.foodStorage = null;
+  if (args.foodPreparedAt && !/\b(?:cook|cooked|prepar\w*|made|baked|fried|masak|dimasak|dibuat|digoreng|dipanggang)\b/i.test(text)) args.foodPreparedAt = null;
+  if (args.collectBy && !/\d|hour|minute|tonight|noon|today|evening|morning|jam|menit|malam|siang|sore|pagi|hari ini/i.test(text)) args.collectBy = null;
+}

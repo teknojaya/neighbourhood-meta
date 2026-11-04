@@ -8,6 +8,7 @@ import { runIdempotent } from '../requests/idempotency.js';
 import { normalizeImage } from '../ask/ask.images.js';
 import { normalizeListingSearch } from './search-terms.js';
 import { searchNearbyListings } from './listings.repository.js';
+import { assertFutureCollectBy, assertPreparedNotInFuture, foodCreateData, foodExpired, foodPublic } from './food-rescue.js';
 
 const include = { owner: { select: { displayName: true } }, photos: { orderBy: { position: 'asc' as const } } };
 type Row = Prisma.ListingGetPayload<{ include: typeof include }>;
@@ -23,6 +24,8 @@ export class ListingsService {
   async createListing(ownerId: string, input: CreateListingBody, key: string = randomUUID()) {
     if (input.bestBefore && input.bestBefore < new Date().toISOString().slice(0, 10)) throw new HttpError('VALIDATION_FAILED', 'Do not publish expired items');
     const result = await runIdempotent(this.db, ownerId, key, 'listing:create', input, async tx => {
+      // Checked inside the transaction so a replayed key returns the original result even after the deadline.
+      const food = foodCreateData(input.food ?? null);
       let point: Prisma.CommunityPointGetPayload<object> | null = null;
       let bestBefore = input.bestBefore ? new Date(input.bestBefore) : null;
       if (input.collection.method === 'community_point') {
@@ -43,7 +46,7 @@ export class ListingsService {
         pointInventoryItemId: input.pointInventoryItemId ?? null,
         collectionMethod: input.collection.method, communityPointId: input.collection.communityPointId,
         appliance: input.appliance ?? Prisma.JsonNull, maxLoanDays: input.lending?.maxLoanDays ?? null,
-        lendingNotes: input.lending?.notes ?? null, bestBefore,
+        lendingNotes: input.lending?.notes ?? null, bestBefore, ...food,
         private: { create: { pickupInstructions: point ? `${point.exactAddress}\n${input.pickupInstructions}`.slice(0, 1000) : input.pickupInstructions } },
       } });
       return { status: 201, body: { id: row.id } };
@@ -61,12 +64,13 @@ export class ListingsService {
       if (row.mode === 'lend' && input.quantity !== undefined && input.quantity !== 1) throw new HttpError('VALIDATION_FAILED', 'Lending items have quantity one');
       if (input.lending === null && row.mode === 'lend') throw new HttpError('VALIDATION_FAILED', 'Lending terms are required');
       if (row.category === 'appliances' && input.appliance === null) throw new HttpError('VALIDATION_FAILED', 'Keep the appliance condition and pickup access details');
+      const food = input.food ? await this.foodEdit(tx, row, input.food) : {};
       await tx.listing.update({ where: { id }, data: { title: input.title, description: input.description, condition: input.condition,
         stockTotal: input.quantity, areaLabel: input.areaLabel,
         appliance: input.appliance === undefined ? undefined : input.appliance ?? Prisma.JsonNull,
         maxLoanDays: input.lending === undefined ? undefined : input.lending?.maxLoanDays ?? null,
         lendingNotes: input.lending === undefined ? undefined : input.lending?.notes ?? null,
-        bestBefore: input.bestBefore === undefined ? undefined : input.bestBefore ? new Date(input.bestBefore) : null,
+        bestBefore: input.bestBefore === undefined ? undefined : input.bestBefore ? new Date(input.bestBefore) : null, ...food,
       } });
       if (input.pickupInstructions !== undefined) await tx.listingPrivate.upsert({ where: { listingId: id }, create: { listingId: id, pickupInstructions: input.pickupInstructions }, update: { pickupInstructions: input.pickupInstructions } });
       return { status: 200, body: { id } };
@@ -78,12 +82,28 @@ export class ListingsService {
       const row = await this.lock(tx, id, ownerId);
       assertTransition(listingMachine, row.status, to, 'owner');
       if (to === 'active' && !await tx.listingPhoto.count({ where: { listingId: id } })) throw new HttpError('VALIDATION_FAILED', 'Add at least one photo before publishing this item');
+      if (to === 'active' && foodExpired(row)) throw new HttpError('CONFLICT', 'The collect-by time for this food has passed');
       if (expectedUpdatedAt && row.updatedAt.toISOString() !== expectedUpdatedAt) throw new HttpError('CONFLICT', 'Listing changed; review a new preview');
       if (to === 'closed' && (row.stockReserved > 0 || await tx.loan.count({ where: { listingId: id, status: { in: ['approved', 'checked_out'] } } }))) throw new HttpError('CONFLICT', 'Finish active requests and loans before closing');
       await tx.listing.update({ where: { id }, data: { status: to } });
       return { status: 200, body: { id } };
     });
     return (await this.getListingDetail(ownerId, id)).listing;
+  }
+  /** Edits to a food offer: the deadline stays in the future and never cuts an approved pickup short. */
+  private async foodEdit(tx: Tx, row: Prisma.ListingGetPayload<object>, edit: NonNullable<UpdateListingBody['food']>) {
+    if (!row.foodRescue) throw new HttpError('VALIDATION_FAILED', 'Food details apply only to food rescue offers');
+    if (foodExpired(row)) throw new HttpError('CONFLICT', 'The collect-by time for this food has passed');
+    const collectBy = edit.collectBy === undefined ? row.collectBy! : new Date(edit.collectBy);
+    const preparedAt = edit.preparedAt === undefined ? row.foodPreparedAt : edit.preparedAt ? new Date(edit.preparedAt) : null;
+    if (edit.collectBy !== undefined) {
+      assertFutureCollectBy(collectBy);
+      const later = await tx.donationRequest.count({ where: { listingId: row.id, status: 'approved', pickupBy: { gt: collectBy } } });
+      if (later) throw new HttpError('CONFLICT', 'An approved pickup ends after this time. Cancel or finish it before moving the collect-by time earlier');
+    }
+    if (edit.preparedAt !== undefined) assertPreparedNotInFuture(preparedAt);
+    if (preparedAt && preparedAt > collectBy) throw new HttpError('VALIDATION_FAILED', 'Preparation time must be before the collect-by time');
+    return { collectBy, foodPreparedAt: preparedAt, foodStorage: edit.storage, foodAllergens: edit.allergens };
   }
   async getMyListings(ownerId: string) { return Promise.all((await this.db.listing.findMany({ where: { ownerId }, include, orderBy: { updatedAt: 'desc' }, take: 100 })).map(row => this.dto(row))); }
   async getListingDetail(userId: string | undefined, id: string) {
@@ -152,6 +172,6 @@ export class ListingsService {
       location: approximateLocation({ lat: row.lat, lng: row.lng }, row.areaLabel, distanceKm),
       collection: { method: row.collectionMethod, communityPointId: row.communityPointId },
       lending: row.maxLoanDays ? { maxLoanDays: row.maxLoanDays, notes: row.lendingNotes, depositRequired: false } : null,
-      bestBefore: row.bestBefore?.toISOString().slice(0, 10) ?? null, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
+      bestBefore: row.bestBefore?.toISOString().slice(0, 10) ?? null, food: foodPublic(row), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
   }
 }

@@ -47,7 +47,7 @@ export async function searchNearbyListings(db: Db, q: NearbySearch): Promise<Nea
     ranges.map(([s, e]) => Prisma.sql`(l.geohash COLLATE "C" >= ${s} AND l.geohash COLLATE "C" <= ${e})`),
     ' OR ',
   );
-  const filters: Prisma.Sql[] = [Prisma.sql`(l.mode = 'lend' OR l.stock_total - l.stock_reserved - l.stock_collected > 0)`, Prisma.sql`(l.best_before IS NULL OR l.best_before >= CURRENT_DATE)`, Prisma.sql`l.status = 'active'`, Prisma.sql`(${rangeSql})`];
+  const filters: Prisma.Sql[] = [Prisma.sql`(l.mode = 'lend' OR l.stock_total - l.stock_reserved - l.stock_collected > 0)`, Prisma.sql`(l.best_before IS NULL OR l.best_before >= CURRENT_DATE)`, Prisma.sql`(NOT l.food_rescue OR l.collect_by > now())`, Prisma.sql`l.status = 'active'`, Prisma.sql`(${rangeSql})`];
   if (q.query?.trim()) {
     const terms = q.query.trim().split(/\s+/).slice(0, 8);
     for (const term of terms) { const pattern = `%${term.replace(/[\\%_]/g, value => `\\${value}`)}%`; filters.push(Prisma.sql`(l.title ILIKE ${pattern} OR l.description ILIKE ${pattern})`); }
