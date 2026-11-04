@@ -90,6 +90,8 @@ jobs:
           context: .
           target: runtime
           push: true
+          # A plain manifest (no attestation index) so the pushed digest is the one Cloud Run records.
+          provenance: false
           tags: ${{ env.APP_IMAGE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -108,6 +110,8 @@ jobs:
           context: .
           target: migrate
           push: true
+          # A plain manifest (no attestation index) so the pushed digest is the one Cloud Run records.
+          provenance: false
           tags: ${{ env.MIGRATE_IMAGE }}
           cache-from: type=gha
           build-args: |
