@@ -108,6 +108,24 @@ enum StockAdjustmentReason {
   correction
 }
 
+enum CharityEventStatus {
+  published
+  cancelled
+}
+
+enum EventPledgeStatus {
+  pledged
+  accepted
+  received
+  cancelled
+}
+
+enum VolunteerSignupStatus {
+  pending
+  accepted
+  cancelled
+}
+
 enum PointKind {
   box
   pantry
@@ -156,6 +174,9 @@ model User {
   depositsReviewed  Deposit[]   @relation("Reviewer")
   stockAdjustments  StockAdjustment[]
   idempotencyKeys   IdempotencyKey[]
+  eventsOrganized   CharityEvent[]
+  eventPledges      EventPledge[]
+  volunteerSignups  VolunteerSignup[]
 
   @@map("users")
 }
@@ -665,4 +686,97 @@ model AskDraft {
   session   AskSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   @@unique([sessionId, kind])
   @@map("ask_drafts")
+}
+
+// ------------------------------------------------------- charity events
+/// Organizer-owned neighbourhood event. No money, payments or delivery.
+/// Exact lat/lng and privateNote go only to the organizer and accepted contributors.
+model CharityEvent {
+  id          String             @id @default(uuid()) @db.Uuid
+  organizerId String             @map("organizer_id") @db.Uuid
+  status      CharityEventStatus @default(published)
+  title       String             @db.VarChar(100)
+  purpose     String             @db.VarChar(2000)
+  startsAt    DateTime           @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime?          @map("ends_at") @db.Timestamptz(3)
+  areaLabel   String             @map("area_label") @db.VarChar(120)
+  lat         Float
+  lng         Float
+  geohash     String             @db.VarChar(12)
+  privateNote String             @default("") @map("private_note") @db.VarChar(1000)
+  cancelledAt DateTime?          @map("cancelled_at") @db.Timestamptz(3)
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  organizer   User               @relation(fields: [organizerId], references: [id])
+  needs       EventNeed[]
+  pledges     EventPledge[]
+  slots       VolunteerSlot[]
+  signups     VolunteerSignup[]
+
+  @@index([organizerId, createdAt])
+  @@map("charity_events")
+}
+
+/// Confirmed needs only; AI suggestions are never stored.
+model EventNeed {
+  id       String       @id @default(uuid()) @db.Uuid
+  eventId  String       @map("event_id") @db.Uuid
+  title    String       @db.VarChar(100)
+  category ItemCategory
+  quantity Int
+  position Int          @default(0)
+  event    CharityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  pledges  EventPledge[]
+
+  @@index([eventId])
+  @@map("event_needs")
+}
+
+/// A pledge is a promise, not proof of receipt; only the organizer marks received.
+model EventPledge {
+  id        String            @id @default(uuid()) @db.Uuid
+  eventId   String            @map("event_id") @db.Uuid
+  needId    String            @map("need_id") @db.Uuid
+  userId    String            @map("user_id") @db.Uuid
+  quantity  Int
+  note      String            @default("") @db.VarChar(300)
+  status    EventPledgeStatus @default(pledged)
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  event     CharityEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  need      EventNeed         @relation(fields: [needId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([needId, status])
+  @@index([userId])
+  @@map("event_pledges")
+}
+
+model VolunteerSlot {
+  id       String       @id @default(uuid()) @db.Uuid
+  eventId  String       @map("event_id") @db.Uuid
+  title    String       @db.VarChar(100)
+  capacity Int
+  position Int          @default(0)
+  event    CharityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  signups  VolunteerSignup[]
+
+  @@index([eventId])
+  @@map("volunteer_slots")
+}
+
+model VolunteerSignup {
+  id        String                @id @default(uuid()) @db.Uuid
+  slotId    String                @map("slot_id") @db.Uuid
+  eventId   String                @map("event_id") @db.Uuid
+  userId    String                @map("user_id") @db.Uuid
+  status    VolunteerSignupStatus @default(pending)
+  createdAt DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  slot      VolunteerSlot         @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  event     CharityEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("volunteer_signups")
 }

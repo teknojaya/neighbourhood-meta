@@ -13,6 +13,9 @@ import { SharePage } from './features/listings/SharePage';
 import { SavedItemsPage } from './features/listings/SavedItemsPage';
 import { MessagesPage } from './features/messages/MessagesPage';
 import { AskPage } from './features/ask/AskPage';
+import { EventsPage } from './features/events/EventsPage';
+import { CreateEventPage } from './features/events/CreateEventPage';
+import { EventDetailPage } from './features/events/EventDetailPage';
 import { SavedNeedsPage } from './features/needs/SavedNeedsPage';
 import { NotificationsPage } from './features/notifications/NotificationsPage';
 import { ProfilePage } from './features/profile/ProfilePage';
@@ -42,6 +45,9 @@ const router = createBrowserRouter([
           { path: 'saved-items', element: <SavedItemsPage /> },
           { path: 'activity', element: <ActivityPage /> },
           { path: 'communities', element: <CommunitiesPage /> },
+          { path: 'events', element: <EventsPage /> },
+          { path: 'events/new', element: <CreateEventPage /> },
+          { path: 'events/:id', element: <EventDetailPage /> },
           { path: 'messages', element: <MessagesPage /> },
           { path: 'notifications', element: <NotificationsPage /> },
           { path: 'categories', element: <ProductCategoriesPage /> },

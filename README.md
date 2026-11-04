@@ -59,6 +59,7 @@ applying migrations. Five account buttons are available at `/login`.
 | `npm run smoke:conversations-saved` | Two browsers: private message photos, product thumbnails and private bookmark persistence/removal |
 | `npm run smoke:search -w @neighbourhood/api` | Real Meta model radius follow-ups, farther matches and honest empty results |
 | `npm run smoke:food-rescue` | Food-rescue form, collect-by countdown, deadline rejection, expiry maintenance and real Meta drafting via review/Confirm (`SMOKE_SKIP_AI=true` skips the model) |
+| `npm run smoke:events` | Charity events: real Meta draft suggestions vs confirmed needs, review/confirm creation, pledges and sign-ups with limits, organizer acceptance, private location and cancellation |
 | `npm run smoke:unread` | Authorized unread counts and header read-state updates; disposable local fixtures |
 | `npm run smoke:ask -w @neighbourhood/api` | Real tools, private images, confirmation and history |
 | `npm run maintenance -w @neighbourhood/api` | Request expiry, push outbox and orphan photo cleanup |
@@ -82,6 +83,14 @@ and `SMOKE_SCREENSHOT_DIR` for mobile captures. They remove only their fixtures.
 - Single-unit loans with availability, overlap protection, checkout and return.
 - Community membership, consented points/QR, reviewed deposits, audited stock
   and inventory-backed donation listings.
+- Charity events: organizers create events (title, purpose, time, public area,
+  private pinned point, confirmed goods and volunteer slots); neighbours pledge
+  goods (pledged → accepted → received, or cancelled) or volunteer (pending →
+  accepted, or cancelled) after a review step. Quantities and capacity are
+  enforced under row locks; the exact point goes only to the organizer and
+  accepted contributors. Meta drafts an editable event and a supply checklist
+  marked "You mentioned" or "AI idea" that is never stored until added and
+  confirmed. No money, payments, tax receipts or delivery.
 - Ask sessions/history, camera/photos, streamed progress, typed tools,
   review/confirm/cancel and recovery; direct forms remain available.
 - Ask product help and caller-role lookup, plus a default-open Explore map of the

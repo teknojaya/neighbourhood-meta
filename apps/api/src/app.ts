@@ -35,6 +35,9 @@ import type { RequestsService } from './modules/requests/requests.service.js';
 import type { ConversationsService } from './modules/conversations/conversations.service.js';
 import type { NotificationsService } from './modules/notifications/notifications.service.js';
 import { askRouter } from './modules/ask/ask.routes.js';
+import { eventsRouter } from './modules/events/events.routes.js';
+import type { EventsService } from './modules/events/events.service.js';
+import type { EventDraftService } from './modules/events/events.ai.js';
 import type { AskService } from './modules/ask/ask.service.js';
 import type { ListingsService } from './modules/listings/listings.service.js';
 import { storageReadRouter } from './modules/storage/storage.routes.js';
@@ -61,6 +64,7 @@ export interface AppDeps {
   listings?: ListingsService;
   photoStorage?: VerifiableObjectStorage;
   places?: PlaceProvider | null;
+  events?: { service: EventsService; drafts: EventDraftService };
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -157,6 +161,7 @@ export function createApp(deps: AppDeps): Express {
   api.use(conversationsRouter(deps.conversations));
   api.use(notificationsRouter(deps.notifications));
   if (deps.db) api.use(pushRouter(deps.db));
+  if (deps.events) api.use(eventsRouter(deps.events.service, deps.events.drafts));
   api.use(notFound);
 
   app.use(API_PREFIX, api);

@@ -37,7 +37,8 @@
     "smoke:brand-activity": "node --env-file-if-exists=apps/api/.env --import tsx scripts/smoke-brand-activity.mjs",
     "smoke:start-updates": "node --env-file-if-exists=apps/api/.env --import tsx scripts/smoke-start-updates.mjs",
     "smoke:seed-catalog": "node --env-file-if-exists=apps/api/.env --import tsx scripts/smoke-seed-catalog.mjs",
-    "smoke:food-rescue": "node --env-file-if-exists=apps/api/.env --import tsx scripts/smoke-food-rescue.mjs"
+    "smoke:food-rescue": "node --env-file-if-exists=apps/api/.env --import tsx scripts/smoke-food-rescue.mjs",
+    "smoke:events": "node --env-file-if-exists=apps/api/.env --import tsx scripts/smoke-events.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

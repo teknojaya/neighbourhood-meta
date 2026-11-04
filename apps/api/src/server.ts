@@ -24,6 +24,8 @@ import { LoansService } from './modules/loans/loans.service.js';
 import { CommunitiesService } from './modules/communities/communities.service.js';
 import { ListingsService } from './modules/listings/listings.service.js';
 import { MatchingService } from './modules/needs/matching.service.js';
+import { EventsService } from './modules/events/events.service.js';
+import { EventDraftService } from './modules/events/events.ai.js';
 import { PrismaProfilesRepository } from './modules/profiles/profiles.repository.js';
 import { ProfilesService } from './modules/profiles/profiles.service.js';
 import { PrismaRequestsService } from './modules/requests/requests.service.js';
@@ -113,6 +115,7 @@ function main() {
     matching,
     photoStorage,
     places: config.geoapifyApiKey ? new GeoapifyPlaces(config.geoapifyApiKey) : null,
+    events: { service: new EventsService(db), drafts: new EventDraftService(generator) },
   });
 
   const server = app.listen(config.port, (error) => {
